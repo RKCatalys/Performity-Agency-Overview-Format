@@ -1,0 +1,6 @@
+# Real Catalys financial data — kept local, never pushed (public repo)
+data.js
+weekly-data.js
+
+# macOS
+.DS_Store
