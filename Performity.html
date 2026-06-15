@@ -315,6 +315,13 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .dz-ico{width:46px; height:46px; margin:0 auto 12px; color:var(--accent);}
 .dz-title{font-weight:700; font-size:15px; margin-bottom:4px;}
 .dz-hint{color:var(--muted); font-size:12.5px;}
+.up-or{display:flex; align-items:center; gap:12px; margin:22px 0 14px; color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.04em;}
+.up-or::before,.up-or::after{content:""; flex:1; height:1px; background:var(--border);}
+.up-sheet{display:flex; gap:9px;}
+.up-sheet-input{flex:1; height:42px; border:1px solid var(--border-strong); border-radius:10px; padding:0 13px; font-family:inherit; font-size:13.5px; color:var(--text); outline:none; background:var(--surface-2);}
+.up-sheet-input:focus{border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px var(--accent-soft);}
+.up-sheet .btn-primary{padding:0 18px; border-radius:10px; white-space:nowrap;}
+.up-sheet-hint{margin-top:9px; font-size:11.5px; color:var(--muted); text-align:left;}
 .up-foot{margin-top:20px; display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--text-2);}
 .up-link{color:var(--accent); font-weight:600;}
 .up-link:hover{text-decoration:underline;}
@@ -439,7 +446,7 @@ function TopSearch({ navigate }) {
   );
 }
 
-function App({ onReset, fileInfo }) {
+function App({ onReset, fileInfo, onRefresh }) {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const parseHash = () => {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
@@ -485,10 +492,16 @@ function App({ onReset, fileInfo }) {
         <header className="topbar">
           <TopSearch navigate={navigate} />
           <div className="topbar-right">
-            <span className="sync">{(window.AGENCY && window.AGENCY.meta.year) || "CY2026"} · <b>{M.activeBrands.length}</b> active brands</span>
-            <button className="topbar-btn" onClick={onReset} title={fileInfo ? "Loaded: " + fileInfo.file : "Upload a new workbook"}>
+            <span className="sync">{(window.AGENCY && window.AGENCY.meta.year) || "CY2026"} · <b>{M.activeBrands.length}</b> active brands{fileInfo && fileInfo.source === "gsheet" ? " · live" : ""}</span>
+            {onRefresh && (
+              <button className="topbar-btn" onClick={onRefresh} title="Pull the latest from the connected Google Sheet">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                Refresh
+              </button>
+            )}
+            <button className="topbar-btn" onClick={onReset} title={fileInfo ? "Loaded: " + fileInfo.file : "Upload a new workbook / connect a sheet"}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-              New upload
+              {fileInfo && fileInfo.source === "gsheet" ? "Change source" : "New upload"}
             </button>
             <div className="user-av">RS</div>
           </div>
@@ -528,6 +541,30 @@ function loadInfo() {
   try { const s = localStorage.getItem(INFO_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
 }
 
+// ---- Google Sheets live connection (no API key; sheet shared view-only) ----
+function sheetIdFromUrl(url) {
+  const s = String(url || "").trim();
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || s.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9-_]{20,}$/.test(s) ? s : null;
+}
+function fetchSheetData(url) {
+  const id = sheetIdFromUrl(url);
+  if (!id) return Promise.reject(new Error("That doesn't look like a Google Sheets link. Paste the full URL from your browser."));
+  const xurl = "https://docs.google.com/spreadsheets/d/" + id + "/export?format=xlsx";
+  return fetch(xurl).then((r) => {
+    if (!r.ok) throw new Error("Couldn't open the sheet (HTTP " + r.status + "). Make sure sharing is set to “Anyone with the link → Viewer”.");
+    return r.arrayBuffer();
+  }).then((buf) => {
+    const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+    return PerformityParser.parse(wb);
+  }).catch((err) => {
+    if (err instanceof TypeError) // network / CORS
+      throw new Error("Couldn't reach the sheet. Check the link and make sure it's shared “Anyone with the link → Viewer”.");
+    throw err;
+  });
+}
+
 // Loads the bundled sample dataset (data.js + weekly-data.js) on demand.
 function loadSampleData() {
   const load = (src) => new Promise((res, rej) => {
@@ -540,11 +577,12 @@ function loadSampleData() {
   }));
 }
 
-function UploadScreen({ onLoaded }) {
+function UploadScreen({ onLoaded, initialUrl, initialError }) {
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
+  const [err, setErr] = useState(initialError || null);
   const [drag, setDrag] = useState(false);
   const [hasSample, setHasSample] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState(initialUrl || "");
   const inputRef = useRef();
 
   // Only offer the sample button if the sample dataset is actually present
@@ -553,10 +591,11 @@ function UploadScreen({ onLoaded }) {
     fetch("data.js", { method: "HEAD" }).then((r) => setHasSample(r.ok)).catch(() => setHasSample(false));
   }, []);
 
-  const ingest = (data, fileName, persisted) => {
+  // Validate → persist → hand off to the app. Throws if the workbook has no brands.
+  const finish = (data, info) => {
     if (!data.AGENCY || !data.AGENCY.summary.length)
       throw new Error("No brands found. Make sure this is the Catalys Agency Overview workbook (with a '1. Summary' sheet).");
-    const info = { file: fileName, at: new Date().toISOString(), persisted };
+    persist(data, info);
     onLoaded(data, info);
   };
 
@@ -568,19 +607,24 @@ function UploadScreen({ onLoaded }) {
     reader.onload = (e) => {
       try {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
-        const data = PerformityParser.parse(wb);
-        const persisted = persist(data, { file: file.name, at: Date.now() });
-        ingest(data, file.name, persisted);
+        finish(PerformityParser.parse(wb), { file: file.name, source: "file", at: Date.now() });
       } catch (ex) { setErr(ex.message || String(ex)); setBusy(false); }
     };
     reader.readAsArrayBuffer(file);
   };
 
+  const connectSheet = () => {
+    if (!sheetUrl.trim()) return;
+    setBusy(true); setErr(null);
+    fetchSheetData(sheetUrl).then((data) => {
+      finish(data, { file: "Google Sheet", source: "gsheet", url: sheetUrl.trim(), at: Date.now() });
+    }).catch((ex) => { setErr(ex.message || String(ex)); setBusy(false); });
+  };
+
   const loadSample = () => {
     setBusy(true); setErr(null);
     loadSampleData().then((data) => {
-      persist(data, { file: "Sample dataset", at: Date.now() });
-      ingest(data, "Sample dataset", true);
+      finish(data, { file: "Sample dataset", source: "sample", at: Date.now() });
     }).catch((ex) => { setErr(ex.message || String(ex)); setBusy(false); });
   };
 
@@ -605,7 +649,16 @@ function UploadScreen({ onLoaded }) {
         <input ref={inputRef} type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: "none" }}
           onChange={(e) => handleFile(e.target.files[0])} />
 
-        {busy && <div className="up-busy"><span className="spin" /> Parsing workbook…</div>}
+        <div className="up-or"><span>or connect a live Google Sheet</span></div>
+        <div className="up-sheet">
+          <input className="up-sheet-input" type="url" placeholder="Paste your Google Sheet link…" value={sheetUrl}
+            onChange={(e) => setSheetUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") connectSheet(); }} />
+          <button className="btn-primary" onClick={connectSheet} disabled={!sheetUrl.trim() || busy}>Connect</button>
+        </div>
+        <div className="up-sheet-hint">Share the sheet as “Anyone with the link → Viewer”. It refreshes automatically every time you open the tool.</div>
+
+        {busy && <div className="up-busy"><span className="spin" /> Loading data…</div>}
         {err && <div className="up-err">{err}</div>}
 
         {hasSample && (
@@ -622,33 +675,86 @@ function UploadScreen({ onLoaded }) {
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
+function Loading({ label }) {
+  return (
+    <div className="uploader">
+      <div className="up-card" style={{ textAlign: "center", paddingTop: 44, paddingBottom: 44 }}>
+        <div className="up-brand"><img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" /></div>
+        <div className="up-busy"><span className="spin" /> {label}</div>
+      </div>
+    </div>
+  );
+}
+
 function resetData() {
   try { localStorage.removeItem(STORE_KEY); localStorage.removeItem(INFO_KEY); } catch (e) {}
   boot(true);
 }
 
+function showUpload(opts) {
+  opts = opts || {};
+  root.render(<UploadScreen initialUrl={opts.url} initialError={opts.error}
+    onLoaded={(data, info) => { applyData(data); renderApp(info); }} />);
+}
+
+// Re-pull the latest data from a connected Google Sheet.
+function refreshFromSheet() {
+  const info = loadInfo();
+  if (!info || info.source !== "gsheet" || !info.url) return;
+  root.render(<Loading label="Refreshing from Google Sheet…" />);
+  fetchSheetData(info.url).then((data) => {
+    persist(data, Object.assign({}, info, { at: Date.now() }));
+    applyData(data); renderApp(Object.assign({}, info, { at: Date.now() }));
+  }).catch(() => {
+    const saved = loadSaved();
+    if (saved && saved.AGENCY) { applyData(saved); renderApp(info); }
+  });
+}
+
 function renderApp(info) {
-  root.render(<App onReset={resetData} fileInfo={info} />);
+  root.render(<App onReset={resetData} fileInfo={info}
+    onRefresh={info && info.source === "gsheet" ? refreshFromSheet : null} />);
 }
 
 function boot(forceUpload) {
-  const saved = forceUpload ? null : loadSaved();
-  if (saved && saved.AGENCY) {
-    applyData(saved);
-    renderApp(loadInfo());
+  const info = forceUpload ? null : loadInfo();
+
+  // ?sheet=<link|id> — connect (or switch) to a Google Sheet from the URL.
+  const sheetParam = new URLSearchParams(window.location.search).get("sheet");
+  if (!forceUpload && sheetParam) {
+    root.render(<Loading label="Connecting to Google Sheet…" />);
+    fetchSheetData(sheetParam).then((data) => {
+      const ni = { file: "Google Sheet", source: "gsheet", url: sheetParam, at: Date.now() };
+      persist(data, ni); applyData(data); renderApp(ni);
+    }).catch((ex) => showUpload({ url: sheetParam, error: (ex && ex.message) || "Couldn't connect to that sheet." }));
     return;
   }
-  // ?demo=1 — auto-load the bundled sample dataset (handy shareable demo link)
-  if (!forceUpload && /[?&]demo\b/.test(window.location.search)) {
-    loadSampleData().then((data) => {
-      applyData(data);
-      renderApp({ file: "Sample dataset", at: Date.now() });
-    }).catch(() => {
-      root.render(<UploadScreen onLoaded={(data, info) => { applyData(data); renderApp(info); }} />);
+
+  // Connected Google Sheet → pull the latest on every open (cache is fallback).
+  if (info && info.source === "gsheet" && info.url) {
+    root.render(<Loading label="Loading latest from Google Sheet…" />);
+    fetchSheetData(info.url).then((data) => {
+      persist(data, Object.assign({}, info, { at: Date.now() }));
+      applyData(data); renderApp(Object.assign({}, info, { at: Date.now() }));
+    }).catch((ex) => {
+      const saved = loadSaved();
+      if (saved && saved.AGENCY) { applyData(saved); renderApp(Object.assign({ stale: true }, info)); }
+      else showUpload({ url: info.url, error: (ex && ex.message) || "Couldn't load the connected sheet." });
     });
     return;
   }
-  root.render(<UploadScreen onLoaded={(data, info) => { applyData(data); renderApp(info); }} />);
+
+  const saved = forceUpload ? null : loadSaved();
+  if (saved && saved.AGENCY) { applyData(saved); renderApp(info); return; }
+
+  // ?demo=1 — auto-load the bundled sample dataset (handy shareable demo link)
+  if (!forceUpload && /[?&]demo\b/.test(window.location.search)) {
+    loadSampleData().then((data) => {
+      applyData(data); renderApp({ file: "Sample dataset", source: "sample", at: Date.now() });
+    }).catch(() => showUpload());
+    return;
+  }
+  showUpload();
 }
 
 boot();
