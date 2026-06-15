@@ -4,22 +4,23 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Performity — Catalys</title>
+<link rel="icon" href="assets/logo-icon.png" type="image/png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
 :root{
-  --accent:#1f6feb; --accent-soft:#eaf1fe; --accent-strong:#1a5fd0;
-  --good:#0f8a52; --good-soft:#e6f4ec; --bad:#d83a3a; --bad-soft:#fcecec;
-  --warn:#bd7e0a; --warn-soft:#fbf2dd; --violet:#7c3aed; --review:#0e7c8b;
-  --bg:#f5f6f8; --surface:#ffffff; --surface-2:#fafbfc;
-  --border:#e8eaee; --border-strong:#d6dae0;
-  --text:#191c20; --text-2:#5a626c; --muted:#949ba5;
+  --accent:#0978BE; --accent-soft:#e9f4fb; --accent-strong:#075f96;
+  --good:#12b3a6; --good-soft:#e3f6f4; --bad:#e0506e; --bad-soft:#fcebef;
+  --warn:#e8902a; --warn-soft:#fdf0dd; --violet:#6c47ff; --review:#0e7c8b;
+  --bg:#f4f8fc; --surface:#ffffff; --surface-2:#f7fafd;
+  --border:#e7ebf2; --border-strong:#d4dbe6;
+  --text:#0e1626; --text-2:#5b6478; --muted:#8a93a6;
   --radius:12px; --radius-sm:8px;
-  --shadow:0 1px 2px rgba(20,25,35,.04), 0 1px 3px rgba(20,25,35,.05);
-  --shadow-lg:0 4px 24px rgba(20,25,35,.10);
+  --shadow:0 1px 2px rgba(14,22,38,.04), 0 1px 3px rgba(14,22,38,.05);
+  --shadow-lg:0 4px 24px rgba(14,22,38,.10);
   --row-py:11px; --card-pad:20px; --kpi-pad:16px;
-  --ui:"Hanken Grotesk",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
 }
 body[data-density="compact"]{ --row-py:7px; --card-pad:16px; --kpi-pad:13px; }
 *{box-sizing:border-box;}
@@ -36,7 +37,8 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .sidebar{background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; position:sticky; top:0; height:100vh;}
 .brand-logo{display:flex; align-items:center; gap:10px; padding:18px 18px 14px;}
 .logo-mark{width:28px; height:28px; border-radius:7px; background:linear-gradient(135deg,var(--accent),var(--accent-strong)); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:15px; flex:none;}
-.logo-text{font-weight:700; font-size:16px; letter-spacing:-.02em;}
+.logo-mark-img{width:30px; height:30px; border-radius:8px; flex:none; object-fit:contain;}
+.logo-text{font-weight:700; font-size:17px; letter-spacing:-.03em;}
 .logo-text small{display:block; font-weight:500; font-size:11px; color:var(--muted); letter-spacing:0;}
 .nav{padding:6px 10px; display:flex; flex-direction:column; gap:1px;}
 .nav-label{font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); padding:14px 12px 6px;}
@@ -302,11 +304,10 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 @media(max-width:760px){ .app{grid-template-columns:1fr;} .sidebar{display:none;} .kpi-row,.kpi-row.six,.alert-summary{grid-template-columns:repeat(2,1fr);} }
 
 /* ---- Upload screen ---- */
-.uploader{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; background:radial-gradient(1200px 600px at 50% -10%, #eaf1fe 0%, var(--bg) 55%);}
+.uploader{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; background:radial-gradient(1100px 560px at 50% -15%, #efeaff 0%, #e9f4fb 35%, var(--bg) 70%);}
 .up-card{width:100%; max-width:560px; background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-lg); padding:34px 34px 28px; text-align:center;}
-.up-brand{display:flex; align-items:center; justify-content:center; gap:11px; margin-bottom:22px;}
-.up-brand .logo-mark{width:34px; height:34px; border-radius:9px; font-size:18px;}
-.up-brand .logo-text{font-size:19px;}
+.up-brand{display:flex; align-items:center; justify-content:center; margin-bottom:20px;}
+.up-logo-icon{width:60px; height:60px; border-radius:15px; box-shadow:0 8px 22px rgba(108,71,255,.28);}
 .up-card h1{font-size:22px; margin-bottom:6px;}
 .up-card .up-sub{color:var(--text-2); font-size:14px; margin-bottom:24px; line-height:1.5;}
 .dropzone{border:2px dashed var(--border-strong); border-radius:14px; padding:38px 24px; cursor:pointer; transition:.15s; background:var(--surface-2);}
@@ -360,11 +361,11 @@ const NAV = [
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accent": "#1f6feb",
+  "accent": "#0978BE",
   "density": "regular"
 }/*EDITMODE-END*/;
-const ACCENTS = { "#1f6feb": "#1a5fd0", "#0f8a52": "#0c724"+"3", "#7c3aed": "#6a2fcf", "#ea580c": "#c8490a" };
-const ACCENT_SOFT = { "#1f6feb": "#eaf1fe", "#0f8a52": "#e6f4ec", "#7c3aed": "#f1ebfd", "#ea580c": "#fdeede" };
+const ACCENTS = { "#0978BE": "#075f96", "#12b3a6": "#0e9085", "#6c47ff": "#5a32e0", "#e8902a": "#c8740f" };
+const ACCENT_SOFT = { "#0978BE": "#e9f4fb", "#12b3a6": "#e3f6f4", "#6c47ff": "#efeaff", "#e8902a": "#fdf0dd" };
 
 function Icon({ d }) {
   return <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -375,8 +376,8 @@ function Sidebar({ route, navigate, alertCount }) {
   return (
     <aside className="sidebar">
       <div className="brand-logo">
-        <div className="logo-mark">P</div>
-        <div className="logo-text">Performity<small>Catalys workspace</small></div>
+        <img className="logo-mark-img" src="assets/logo-icon.png" alt="" />
+        <div className="logo-text">performity<small>Catalys workspace</small></div>
       </div>
       <nav className="nav">
         {groups.map(g => (
@@ -496,7 +497,7 @@ function App({ onReset, fileInfo }) {
       </div>
       <TweaksPanel>
         <TweakSection label="Appearance" />
-        <TweakColor label="Accent" value={t.accent} options={["#1f6feb", "#0f8a52", "#7c3aed", "#ea580c"]} onChange={v => setTweak("accent", v)} />
+        <TweakColor label="Accent" value={t.accent} options={["#0978BE", "#12b3a6", "#6c47ff", "#e8902a"]} onChange={v => setTweak("accent", v)} />
         <TweakRadio label="Density" value={t.density} options={["compact", "regular"]} onChange={v => setTweak("density", v)} />
       </TweaksPanel>
     </div>
@@ -587,8 +588,7 @@ function UploadScreen({ onLoaded }) {
     <div className="uploader">
       <div className="up-card">
         <div className="up-brand">
-          <div className="logo-mark">P</div>
-          <div className="logo-text">Performity<small>Catalys workspace</small></div>
+          <img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" />
         </div>
         <h1>Upload your Agency Overview</h1>
         <p className="up-sub">Drop in your <b>Catalys Agency Overview</b> Excel workbook (.xlsx) and Performity builds your live portfolio dashboard — brands, channels, weekly scrum, alerts and team rollups.</p>
