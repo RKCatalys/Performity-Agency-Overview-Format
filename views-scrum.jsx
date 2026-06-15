@@ -21,10 +21,20 @@ function activeMonthSet(W) {
   }
   return set.length ? set : [0];
 }
+// Dense count metrics whose week cells reliably reflect the real number of weeks
+// (delta / % / achievement rows can carry stray trailing values, so we ignore them).
+const WEEK_PROBES = ["Total Ad Spend", "Shopify Gross Sales", "Dashboard Revenue", "Shopify Orders",
+  "Spend", "Reach", "Impressions", "Revenue", "Clicks"];
 function weeksPerMonth(W, mi) {
-  const ov = W.overall.metrics;
-  const probe = ov["Total Ad Spend"] || ov["Shopify Gross Sales"] || ov["Dashboard Revenue"];
-  const n = probe ? probe.months[mi].weeks.length : 0;
+  let n = 0;
+  ["overall", "meta", "google", "other", "shopify"].forEach(k => {
+    const mets = W[k] && W[k].metrics;
+    if (!mets) return;
+    WEEK_PROBES.forEach(p => {
+      const m = mets[p] && mets[p].months[mi];
+      if (m && m.weeks.length > n) n = m.weeks.length;
+    });
+  });
   return Math.max(1, n);
 }
 function sectionHasData(W, key) {
@@ -199,11 +209,18 @@ function ScrumGrid({ brandKey }) {
   const W = window.WEEKLY[brandKey];
   const [period, setPeriod] = useStateS("week");
   const [showWoW, setShowWoW] = useStateS(false);
+  const [range, setRange] = useStateS(null); // { from, to } month indices, null = full year
   const [open, setOpen] = useStateS({ overall: true, meta: true, google: false, other: false, shopify: false });
   if (!W) return null;
-  const activeMonths = activeMonthSet(W);
+  const fullActive = activeMonthSet(W);
+  const rFrom = range ? range.from : fullActive[0];
+  const rTo = range ? range.to : fullActive[fullActive.length - 1];
+  const lo = Math.min(rFrom, rTo), hi = Math.max(rFrom, rTo);
+  const ranged = fullActive.filter(mi => mi >= lo && mi <= hi);
+  const activeMonths = (period === "quarter" || !ranged.length) ? fullActive : ranged;
   const columns = buildColumns(W, period, activeMonths);
   const visibleSecs = SCRUM_SECTIONS.filter(s => sectionHasData(W, s.key));
+  const rangeActive = range && (lo !== fullActive[0] || hi !== fullActive[fullActive.length - 1]);
 
   const exportCSV = () => {
     const csv = buildCSV(W, brandKey, period, columns, visibleSecs);
@@ -224,6 +241,19 @@ function ScrumGrid({ brandKey }) {
           <span className="muted-sm">blended store first, then per-channel — toggle the time grain</span>
         </div>
         <div className="scrum-tools">
+          {period !== "quarter" && fullActive.length > 1 && (
+            <div className={"date-range " + (rangeActive ? "on" : "")} title="Filter the date range shown">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              <select value={lo} onChange={e => setRange({ from: +e.target.value, to: hi })}>
+                {fullActive.map(mi => <option key={mi} value={mi}>{MONTHS[mi]}</option>)}
+              </select>
+              <span className="dr-dash">–</span>
+              <select value={hi} onChange={e => setRange({ from: lo, to: +e.target.value })}>
+                {fullActive.map(mi => <option key={mi} value={mi}>{MONTHS[mi]}</option>)}
+              </select>
+              {rangeActive && <button className="dr-clear" title="Clear date filter" onClick={() => setRange(null)}>×</button>}
+            </div>
+          )}
           <button className={"tool-btn " + (showWoW ? "on" : "")} onClick={() => setShowWoW(v => !v)} title="Show period-over-period change">
             <span className="td-ico">Δ</span>{wowLabel}
           </button>

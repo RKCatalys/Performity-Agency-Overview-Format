@@ -245,6 +245,12 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .tool-btn:hover{border-color:var(--border-strong); color:var(--text);}
 .tool-btn.on{background:var(--accent-soft); color:var(--accent-strong); border-color:transparent;}
 .tool-btn .td-ico{font-weight:800; font-size:13px;}
+.date-range{display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text-2);}
+.date-range.on{border-color:var(--accent); color:var(--accent-strong); background:var(--accent-soft);}
+.date-range select{font-family:inherit; font-size:12.5px; font-weight:600; color:inherit; border:none; background:transparent; outline:none; cursor:pointer; padding:1px 2px;}
+.date-range .dr-dash{color:var(--muted);}
+.date-range .dr-clear{font-size:15px; line-height:1; color:var(--muted); padding:0 2px;}
+.date-range .dr-clear:hover{color:var(--bad);}
 @media(max-width:680px){ .scrum-tools{flex-wrap:wrap; justify-content:flex-end;} }
 .scrum-legend{display:flex; align-items:center; gap:18px; padding:0 20px 12px; border-bottom:1px solid var(--border);}
 .sl-item{display:inline-flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-2); font-weight:500;}
@@ -525,6 +531,7 @@ function applyData(d) {
   window.AGENCY = d.AGENCY;
   window.WEEKLY = d.WEEKLY || {};
   window.WEEKLY_META = d.WEEKLY_META || {};
+  if (window.PerformityParser && PerformityParser.augmentWeekly) PerformityParser.augmentWeekly(window.WEEKLY);
   window.buildModel();
 }
 function persist(d, info) {

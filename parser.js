@@ -85,9 +85,14 @@
   };
 
   function isSectionHeader(lbl) {
+    // Section banners are ALL-CAPS ("SHOPIFY (STORE)"); metric rows are Title Case
+    // ("Shopify Gross Sales"). Reject anything containing a lowercase letter so that
+    // metrics beginning with a section word don't falsely start a new section.
+    const letters = String(lbl).replace(/[^A-Za-z]/g, "");
+    if (!letters || /[a-z]/.test(letters)) return false;
     const u = String(lbl).toUpperCase();
-    return u.startsWith("OVERALL") || u === "META" || u.startsWith("META ") ||
-           u === "GOOGLE" || u === "OTHER" || u.startsWith("SHOPIFY");
+    return u.startsWith("OVERALL") || u.startsWith("META") || u.startsWith("GOOGLE") ||
+           u.startsWith("OTHER") || u.startsWith("SHOPIFY");
   }
   function sectionOf(lbl) {
     const u = norm(lbl);
@@ -113,16 +118,17 @@
       const a = cell(r, 0);
       if (a == null || !String(a).trim()) continue;
       const lbl = String(a).trim();
-      const sec = sectionOf(lbl);
-      if (sec != null && isSectionHeader(lbl)) {
-        cur = sec; weekly[cur] = { order: [], metrics: {} }; continue;
+      if (isSectionHeader(lbl)) {
+        cur = sectionOf(lbl); weekly[cur] = { order: [], metrics: {} }; continue;
       }
       if (lbl.toLowerCase().includes("channel breakdown")) continue;
       if (cur == null) continue;
+      if (norm(lbl) === "metric") continue; // column-header row, not a metric
       const name = lbl.replace(/\s+/g, " ").trim();
       const months = MONTH_COLS.map(({ weeks, mo }) => {
         const w = weeks.map((c) => get(r, c));
-        while (w.length && w[w.length - 1] == null) w.pop();
+        // trim trailing empties (None or a stray 0) so week counts match the calendar
+        while (w.length && (w[w.length - 1] == null || w[w.length - 1] === 0)) w.pop();
         return { weeks: w, mo: get(r, mo) };
       });
       const quarters = QTR_COLS.map((c) => get(r, c));
@@ -302,5 +308,39 @@
     return { AGENCY, WEEKLY, WEEKLY_META };
   }
 
-  window.PerformityParser = { parse };
+  // ---- derived rows ----
+  // Element-wise ratio of two metric objects ({months,quarters,year}); null where denominator is 0/null.
+  function ratioRow(num, den) {
+    if (!num || !den) return null;
+    const div = (a, b) => (a != null && b != null && b !== 0) ? a / b : null;
+    const months = num.months.map((m, i) => {
+      const dm = den.months[i] || { weeks: [], mo: null };
+      const weeks = m.weeks.map((w, wi) => div(w, dm.weeks[wi]));
+      while (weeks.length && weeks[weeks.length - 1] == null) weeks.pop();
+      return { weeks, mo: div(m.mo, dm.mo) };
+    });
+    const quarters = num.quarters.map((q, i) => div(q, (den.quarters || [])[i]));
+    return { months, quarters, year: div(num.year, den.year) };
+  }
+
+  // Adds a derived "Gross ROAS" row (Shopify Gross Sales / Total Ad Spend) to every
+  // brand's blended-store section, so it shows for all brands — not just ones whose
+  // sheet happened to include it. Idempotent; skips if already present.
+  function augmentWeekly(WEEKLY) {
+    Object.keys(WEEKLY || {}).forEach((k) => {
+      const ov = WEEKLY[k] && WEEKLY[k].overall;
+      if (!ov || !ov.metrics || ov.metrics["Gross ROAS"]) return;
+      const gross = ov.metrics["Shopify Gross Sales"];
+      const spend = ov.metrics["Total Ad Spend"] || ov.metrics["Spend"];
+      const row = ratioRow(gross, spend);
+      if (!row) return;
+      ov.metrics["Gross ROAS"] = row;
+      const i = ov.order.indexOf("Dashboard ROAS");
+      if (i >= 0) ov.order.splice(i + 1, 0, "Gross ROAS");
+      else ov.order.push("Gross ROAS");
+    });
+    return WEEKLY;
+  }
+
+  window.PerformityParser = { parse, augmentWeekly };
 })();
