@@ -1,6 +1,13 @@
 /* lib.jsx — formatting helpers, lightweight SVG charts, UI primitives.
    Exported to window for use across script files. */
 
+/* ---------------- User store (browser-local, namespaced) ---------------- */
+const PStore = {
+  get(key, fallback) { try { const v = localStorage.getItem("performity.user." + key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } },
+  set(key, val) { try { localStorage.setItem("performity.user." + key, JSON.stringify(val)); return true; } catch (e) { return false; } },
+};
+window.PStore = PStore;
+
 /* ---------------- Currency ---------------- */
 // Source data is in INR. window.CURRENCY holds the active DISPLAY currency:
 //   { code, symbol, style: "in"|"intl", rate }  (rate = target units per 1 INR)

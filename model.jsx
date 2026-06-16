@@ -11,10 +11,11 @@ window.buildModel = function () {
     return q;
   }
 
+  const tlOv = (window.PStore && window.PStore.get("tlOverrides", {})) || {};
   const brands = A.summary.map(s => {
     const mom = A.mom[s.name.toUpperCase()] || {};
     const ch = A.channels[s.name] || { meta: {}, google: {}, other: {}, shopify: {} };
-    const tl = A.tl[s.name] || {};
+    const tl = { ...(A.tl[s.name] || {}), ...(tlOv[s.name] || {}) };
     const spendSeries = mom["Ad Spend"] || [];
     const revSeries = mom["Dashboard Revenue"] || [];
     const roasSeries = mom["Dashboard ROAS"] || [];

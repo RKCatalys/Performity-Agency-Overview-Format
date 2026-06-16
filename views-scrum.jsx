@@ -294,4 +294,41 @@ function ScrumGrid({ brandKey }) {
   );
 }
 
+// Per-brand notes/comments tied to the weekly section (saved in browser)
+function ScrumComments({ brandKey }) {
+  const key = "comments." + brandKey;
+  const [items, setItems] = React.useState(() => window.PStore.get(key, []));
+  const [text, setText] = React.useState("");
+  const [week, setWeek] = React.useState("");
+  const add = () => {
+    if (!text.trim()) return;
+    const next = [{ text: text.trim(), week: week.trim(), at: Date.now() }, ...items];
+    setItems(next); window.PStore.set(key, next); setText(""); setWeek("");
+  };
+  const del = (i) => { const next = items.filter((_, k) => k !== i); setItems(next); window.PStore.set(key, next); };
+  return (
+    <div className="card comments-card">
+      <div className="card-head"><h3>Notes &amp; comments</h3><span className="muted-sm">tag a week · saved in your browser</span></div>
+      <div className="cm-add">
+        <input className="cm-week tl-input" placeholder="Week / period (e.g. Jun W2)" value={week} onChange={e => setWeek(e.target.value)} />
+        <textarea className="cm-text" placeholder="Add a note about this week…" value={text} onChange={e => setText(e.target.value)} />
+        <button className="btn-primary" onClick={add}>Add note</button>
+      </div>
+      <div className="cm-list">
+        {items.map((c, i) => (
+          <div className="cm-item" key={i}>
+            <div className="cm-meta">
+              {c.week && <span className="cm-week-tag">{c.week}</span>}
+              <span className="cm-date">{new Date(c.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+              <button className="cm-del" title="Delete" onClick={() => del(i)}>×</button>
+            </div>
+            <div className="cm-body">{c.text}</div>
+          </div>
+        ))}
+        {!items.length && <div className="empty">No notes yet — add the first one.</div>}
+      </div>
+    </div>
+  );
+}
+window.ScrumComments = ScrumComments;
 window.ScrumGrid = ScrumGrid;

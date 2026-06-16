@@ -259,6 +259,7 @@ function BrandDetail({ brandKey, navigate }) {
           </div>
 
           <ScrumGrid brandKey={b.key} />
+          <ScrumComments brandKey={b.key} />
         </>
       ) : (
         <div className="card empty-state">
