@@ -99,7 +99,7 @@ function WoWChip({ d, label }) {
   return <span className={"wk-d " + (good ? "good" : "bad")}>{up ? "▲" : "▼"}{(Math.abs(d) * 100).toFixed(0)}%</span>;
 }
 
-function ScrumSection({ W, secDef, period, columns, activeMonths, open, onToggle, showWoW }) {
+function ScrumSection({ W, secDef, period, columns, activeMonths, open, onToggle, showWoW, onWrapScroll }) {
   const sec = W[secDef.key];
   if (!sec) return null;
   const order = sec.order.filter(k => !/^\d+(\.\d+)?$/.test(k));
@@ -123,7 +123,7 @@ function ScrumSection({ W, secDef, period, columns, activeMonths, open, onToggle
         </span>
       </button>
       {open && (
-        <div className="scrum-wrap">
+        <div className="scrum-wrap" onScroll={onWrapScroll}>
           <table className={"scrum-table " + (showWoW ? "with-wow" : "")}>
             <thead>
               {isWeek && (
@@ -233,6 +233,17 @@ function ScrumGrid({ brandKey }) {
   };
   const wowLabel = period === "week" ? "WoW Δ" : period === "month" ? "MoM Δ" : "QoQ Δ";
 
+  // keep every channel section's horizontal scroll in sync with the one being scrolled
+  const syncingRef = React.useRef(false);
+  const onWrapScroll = (e) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    const src = e.currentTarget, sl = src.scrollLeft;
+    const card = src.closest(".scrum-card");
+    if (card) card.querySelectorAll(".scrum-wrap").forEach(el => { if (el !== src) el.scrollLeft = sl; });
+    requestAnimationFrame(() => { syncingRef.current = false; });
+  };
+
   return (
     <div className="card scrum-card">
       <div className="card-head scrum-head">
@@ -276,7 +287,7 @@ function ScrumGrid({ brandKey }) {
       <div className="scrum-sections">
         {visibleSecs.map(s => (
           <ScrumSection key={s.key} W={W} secDef={s} period={period} columns={columns} activeMonths={activeMonths}
-            open={!!open[s.key]} onToggle={() => setOpen(o => ({ ...o, [s.key]: !o[s.key] }))} showWoW={showWoW} />
+            open={!!open[s.key]} onToggle={() => setOpen(o => ({ ...o, [s.key]: !o[s.key] }))} showWoW={showWoW} onWrapScroll={onWrapScroll} />
         ))}
       </div>
     </div>

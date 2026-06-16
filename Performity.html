@@ -23,6 +23,24 @@
   --ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
 }
 body[data-density="compact"]{ --row-py:7px; --card-pad:16px; --kpi-pad:13px; }
+body[data-theme="dark"]{
+  --accent:#3a9fe0; --accent-soft:#11263a; --accent-strong:#6cb8ee;
+  --good:#2bc4b4; --good-soft:#0e2a2a; --bad:#f0708c; --bad-soft:#2e1620;
+  --warn:#e8a64a; --warn-soft:#2c2110; --violet:#9a7bff; --review:#3fb5c4;
+  --bg:#0d1320; --surface:#151c2c; --surface-2:#1a2334;
+  --border:#28324a; --border-strong:#3a4763;
+  --text:#e7ecf5; --text-2:#9aa6bd; --muted:#6c7894;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 1px 3px rgba(0,0,0,.35);
+  --shadow-lg:0 6px 28px rgba(0,0,0,.45);
+}
+body[data-theme="dark"] .topbar{ background:rgba(21,28,44,.85); }
+body[data-theme="dark"] .scrum-table thead .grp-row th.grp{ background:#202b42; }
+body[data-theme="dark"] .scrum-table thead .grp-row th.gcorner{ background:#202b42; }
+body[data-theme="dark"] .scrum-table .total-col{ background:#13283f; }
+body[data-theme="dark"] .scrum-table thead .total-col{ background:#16314d; }
+body[data-theme="dark"] .scrum-table .year-col{ background:#1d2740; }
+body[data-theme="dark"] .scrum-table thead .year-col{ background:#222d49; }
+body[data-theme="dark"] .uploader{ background:radial-gradient(1100px 560px at 50% -15%, #1a1740 0%, #0f2030 35%, var(--bg) 70%); }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{font-family:var(--ui); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.45;}
@@ -338,6 +356,10 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .up-note{margin-top:22px; font-size:11.5px; color:var(--muted); max-width:460px; line-height:1.5;}
 .topbar-btn{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--text-2); padding:6px 11px; border:1px solid var(--border); border-radius:8px; background:var(--surface);}
 .topbar-btn:hover{border-color:var(--accent); color:var(--accent);}
+.cur-select{font-family:inherit; font-size:12.5px; font-weight:600; color:var(--text-2); border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:6px 8px; cursor:pointer; outline:none;}
+.cur-select:hover{border-color:var(--accent); color:var(--accent);}
+.icon-btn{display:inline-flex; align-items:center; justify-content:center; width:34px; height:32px; color:var(--text-2); border:1px solid var(--border); border-radius:8px; background:var(--surface);}
+.icon-btn:hover{border-color:var(--accent); color:var(--accent);}
 </style>
 </head>
 <body data-density="regular">
@@ -454,6 +476,14 @@ function TopSearch({ navigate }) {
 
 function App({ onReset, fileInfo, onRefresh }) {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [theme, setTheme] = useState(() => localStorage.getItem("performity.theme") || "light");
+  const [cur, setCur] = useState(() => localStorage.getItem("performity.cur") || "INR");
+  const [fx, setFx] = useState(() => loadFxCache());
+  useEffect(() => { fetchFx().then(setFx); }, []);
+  useEffect(() => { document.body.setAttribute("data-theme", theme); localStorage.setItem("performity.theme", theme); }, [theme]);
+  useEffect(() => { localStorage.setItem("performity.cur", cur); }, [cur]);
+  // set the active display currency before any view renders (source data is INR)
+  window.applyCurrency(cur, fx);
   const parseHash = () => {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
     const [screen, ...rest] = h.split("/");
@@ -499,6 +529,15 @@ function App({ onReset, fileInfo, onRefresh }) {
           <TopSearch navigate={navigate} />
           <div className="topbar-right">
             <span className="sync">{(window.AGENCY && window.AGENCY.meta.year) || "CY2026"} · <b>{M.activeBrands.length}</b> active brands{fileInfo && fileInfo.source === "gsheet" ? " · live" : ""}</span>
+            <select className="cur-select" value={cur} onChange={e => setCur(e.target.value)}
+              title={cur === "INR" ? "Display currency (data is in ₹)" : "Converted from ₹ at live rate " + (window.CURRENCY.rate ? window.CURRENCY.rate.toPrecision(4) : "")}>
+              {Object.keys(window.CURRENCIES).map(code => <option key={code} value={code}>{code}</option>)}
+            </select>
+            <button className="icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title={theme === "dark" ? "Switch to light" : "Switch to dark"}>
+              {theme === "dark"
+                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+                : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" /></svg>}
+            </button>
             {onRefresh && (
               <button className="topbar-btn" onClick={onRefresh} title="Pull the latest from the connected Google Sheet">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -546,6 +585,25 @@ function loadSaved() {
 }
 function loadInfo() {
   try { const s = localStorage.getItem(INFO_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+}
+
+// ---- Live FX rates (base INR), cached 12h. Free, no key, CORS-open. ----
+const FX_KEY = "performity.fx.v1";
+function loadFxCache() { try { return JSON.parse(localStorage.getItem(FX_KEY)); } catch (e) { return null; } }
+function fetchFx() {
+  const cached = loadFxCache();
+  if (cached && cached.rates && (Date.now() - cached.ts) < 12 * 3600 * 1000) return Promise.resolve(cached);
+  return fetch("https://open.er-api.com/v6/latest/INR")
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.rates) {
+        const fx = { rates: d.rates, ts: Date.now() };
+        try { localStorage.setItem(FX_KEY, JSON.stringify(fx)); } catch (e) {}
+        return fx;
+      }
+      return cached || { rates: {}, ts: 0 };
+    })
+    .catch(() => cached || { rates: {}, ts: 0 });
 }
 
 // ---- Google Sheets live connection (no API key; sheet shared view-only) ----

@@ -1,22 +1,56 @@
 /* lib.jsx — formatting helpers, lightweight SVG charts, UI primitives.
    Exported to window for use across script files. */
 
+/* ---------------- Currency ---------------- */
+// Source data is in INR. window.CURRENCY holds the active DISPLAY currency:
+//   { code, symbol, style: "in"|"intl", rate }  (rate = target units per 1 INR)
+const CURRENCIES = {
+  INR: { symbol: "₹", style: "in", name: "Indian Rupee" },
+  USD: { symbol: "$", style: "intl", name: "US Dollar" },
+  AED: { symbol: "AED ", style: "intl", name: "UAE Dirham" },
+  QAR: { symbol: "QAR ", style: "intl", name: "Qatari Riyal" },
+  SAR: { symbol: "SAR ", style: "intl", name: "Saudi Riyal" },
+  PHP: { symbol: "₱", style: "intl", name: "Philippine Peso" },
+  GBP: { symbol: "£", style: "intl", name: "British Pound" },
+  EUR: { symbol: "€", style: "intl", name: "Euro" },
+  AUD: { symbol: "A$", style: "intl", name: "Australian Dollar" },
+  CAD: { symbol: "C$", style: "intl", name: "Canadian Dollar" },
+};
+function curState() { return window.CURRENCY || { code: "INR", symbol: "₹", style: "in", rate: 1 }; }
+// Set the active display currency from a fetched FX table (rates keyed per 1 INR).
+function applyCurrency(code, fx) {
+  const meta = CURRENCIES[code] || CURRENCIES.INR;
+  const rate = code === "INR" ? 1 : ((fx && fx.rates && fx.rates[code]) || 1);
+  window.CURRENCY = { code, symbol: meta.symbol, style: meta.style, rate };
+  return window.CURRENCY;
+}
+
 /* ---------------- Formatting ---------------- */
-// Indian-style compact currency (Cr / L / K)
+// Compact currency in the active display currency (Cr/L/K for INR, B/M/K otherwise)
 function inr(n, { sign = false } = {}) {
   if (n === null || n === undefined || isNaN(n)) return "—";
-  const neg = n < 0; const a = Math.abs(n);
+  const cur = curState();
+  const v = n * (cur.rate || 1);
+  const neg = v < 0; const a = Math.abs(v); const sym = cur.symbol;
   let s;
-  if (a >= 1e7) s = "₹" + (a / 1e7).toFixed(a / 1e7 >= 10 ? 1 : 2) + " Cr";
-  else if (a >= 1e5) s = "₹" + (a / 1e5).toFixed(a / 1e5 >= 10 ? 1 : 2) + " L";
-  else if (a >= 1e3) s = "₹" + (a / 1e3).toFixed(1) + "K";
-  else s = "₹" + Math.round(a);
+  if (cur.style === "in") {
+    if (a >= 1e7) s = sym + (a / 1e7).toFixed(a / 1e7 >= 10 ? 1 : 2) + " Cr";
+    else if (a >= 1e5) s = sym + (a / 1e5).toFixed(a / 1e5 >= 10 ? 1 : 2) + " L";
+    else if (a >= 1e3) s = sym + (a / 1e3).toFixed(1) + "K";
+    else s = sym + Math.round(a);
+  } else {
+    if (a >= 1e9) s = sym + (a / 1e9).toFixed(2) + "B";
+    else if (a >= 1e6) s = sym + (a / 1e6).toFixed(2) + "M";
+    else if (a >= 1e3) s = sym + (a / 1e3).toFixed(1) + "K";
+    else s = sym + Math.round(a);
+  }
   if (neg) return "−" + s;
   return (sign ? "+" : "") + s;
 }
 function inrFull(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
-  return "₹" + Math.round(n).toLocaleString("en-IN");
+  const cur = curState();
+  return cur.symbol + Math.round(n * (cur.rate || 1)).toLocaleString(cur.style === "in" ? "en-IN" : "en-US");
 }
 function num(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
@@ -226,4 +260,5 @@ function isHeadline(label) {
 
 Object.assign(window, { metricFmt, isHeadline,
   inr, inrFull, num, roas, pct, delta, MONTHS, roasHealth,
+  CURRENCIES, curState, applyCurrency,
   Sparkline, ComboChart, LineMulti, Funnel, Donut, Delta, Badge, Avatar });
