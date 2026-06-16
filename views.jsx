@@ -102,6 +102,24 @@ function Overview({ navigate }) {
         <KPI label="Blended CAC" value={inr(gt.cac)} sub="cost / acquisition" />
       </div>
 
+      {M.insights && M.insights.length > 0 && (
+        <div className="card insights-card">
+          <div className="card-head">
+            <h3>Needs attention &amp; opportunities</h3>
+            <button className="link-arrow" onClick={() => navigate("alerts")} style={{ background: "none", padding: 0 }}>View all {M.insights.length} →</button>
+          </div>
+          <div className="insight-strip">
+            {M.insights.slice(0, 4).map((x, i) => (
+              <button key={i} className={"insight-pill " + (x.good ? "good" : x.sev === "critical" ? "bad" : "warn")} onClick={() => navigate("brand", x.brandKey)}>
+                <div className="ip-top"><span className="ip-brand">{x.brand}</span><span className="ip-delta mono">{x.metricStr}</span></div>
+                <div className="ip-msg">{x.msg}</div>
+                {x.action && <div className="ip-act">{x.action}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid-2">
         <div className="card">
           <div className="card-head">
@@ -145,9 +163,9 @@ function Overview({ navigate }) {
                 <SortH k="dashRev" num>Dash Rev</SortH>
                 <SortH k="dashRoas" num>ROAS</SortH>
                 <SortH k="netRoas" num>Net ROAS</SortH>
-                <SortH k="orders" num>Orders</SortH>
+                <SortH k="orders" num>Orders / Leads</SortH>
                 <SortH k="aov" num>AOV</SortH>
-                <SortH k="cac" num>CAC</SortH>
+                <SortH k="cac" num>CAC / CPL</SortH>
                 <th className="n">Trend</th>
                 <th>Owners</th>
               </tr>
@@ -158,6 +176,7 @@ function Overview({ navigate }) {
                   <td className="brand-cell">
                     <span className="brand-dot" data-h={roasHealth(b.dashRoas)} />
                     <span className="brand-name">{b.key}</span><RegionTag r={b.region} />
+                    {b.leadGen && <span className="region" title="Lead-generation model">LEADS</span>}
                   </td>
                   <td className="n mono">{inr(b.spend)}</td>
                   <td className="n mono">{inr(b.dashRev)}</td>

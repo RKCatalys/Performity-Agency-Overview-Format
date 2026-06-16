@@ -157,6 +157,7 @@ function BrandDetail({ brandKey, navigate }) {
             <div className="brand-title">
               <span className="brand-dot lg" data-h={roasHealth(b.dashRoas)} />
               <h1>{b.key}</h1><RegionTag r={b.region} />
+              {b.leadGen && <Badge tone="accent">Lead-gen</Badge>}
               {!b.active && <Badge tone="neutral">No spend yet</Badge>}
             </div>
             <p className="sub">
@@ -187,8 +188,8 @@ function BrandDetail({ brandKey, navigate }) {
         <KPI label="Dash Revenue" value={inr(k.dashRev)} spark={b.revSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
         <KPI label="Dash ROAS" value={roas(k.dashRoas)} tone={roasHealth(k.dashRoas)} spark={b.roasSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
         <KPI label="Net ROAS" value={roas(k.netRoas)} sub="on GST spend" />
-        <KPI label="Orders" value={k.orders ? num(k.orders) : "—"} sub={k.aov ? "AOV " + inr(k.aov) : null} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
-        <KPI label="CAC" value={k.cac ? inr(k.cac) : "—"} sub={ret != null ? "Return " + pct(ret, 0) : null} />
+        <KPI label={b.leadGen ? "Leads" : "Orders"} value={k.orders ? num(k.orders) : "—"} sub={b.leadGen ? "lead volume" : (k.aov ? "AOV " + inr(k.aov) : null)} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
+        <KPI label={b.leadGen ? "CPL" : "CAC"} value={k.cac ? inr(k.cac) : "—"} sub={b.leadGen ? "cost / lead" : (ret != null ? "Return " + pct(ret, 0) : null)} />
       </div>
 
       {b.active ? (

@@ -192,6 +192,8 @@
             if (norm(lbl) === "metric") break;
             const nn = sumrows[j + 1] || [];
             if (typeof cell(nn, 0) === "string" && norm(cell(nn, 0)) === "metric") break;
+            // a brand metered in leads/CPL rather than orders/CAC is a lead-gen model
+            if (/lead|cpl/i.test(String(lbl))) AGENCY.leadGen[canon] = true;
             const baseLabel = String(lbl).split("/")[0].trim().toLowerCase().replace(/\s+/g, " ");
             const key = MOM_MAP[baseLabel];
             if (key) {
@@ -272,7 +274,7 @@
     })();
 
     const AGENCY = { meta: { year: yearLabel, months: MONTHS },
-                     summary: [], grandTotal: {}, mom: {}, tl: {}, channels: {} };
+                     summary: [], grandTotal: {}, mom: {}, tl: {}, channels: {}, leadGen: {} };
     const WEEKLY = {}, WEEKLY_META = {};
 
     // per-brand sheets

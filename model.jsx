@@ -30,6 +30,7 @@ window.buildModel = function () {
       key: s.name,
       region: INTL[s.name] || "IN",
       active,
+      leadGen: !!(A.leadGen && A.leadGen[s.name]),
       mom, ch, tl,
       spendSeries, revSeries, roasSeries, ordersSeries,
       lastActive, prevActive,
@@ -81,6 +82,80 @@ window.buildModel = function () {
 
   function roasFmt(n){ return n.toFixed(2)+"×"; }
 
+  // ---- Smart insights: MoM change detection w/ channel attribution + actions ----
+  const W = window.WEEKLY || {};
+  const chMo = (key, sec, metric, mi) => {
+    const s = W[key] && W[key][sec] && W[key][sec].metrics[metric];
+    return s && s.months[mi] ? s.months[mi].mo : null;
+  };
+  const attrChannel = (b, mi, pi) => {
+    const dMeta = (chMo(b.key, "meta", "Revenue", mi) || 0) - (chMo(b.key, "meta", "Revenue", pi) || 0);
+    const dG = (chMo(b.key, "google", "Revenue", mi) || 0) - (chMo(b.key, "google", "Revenue", pi) || 0);
+    if (!dMeta && !dG) return null;
+    return Math.abs(dG) > Math.abs(dMeta) ? "Google" : "Meta";
+  };
+  const insights = [];
+  const MO = window.MONTHS;
+  brands.forEach(b => {
+    if (!b.active || b.lastActive <= 0 || b.prevActive < 0) return;
+    const c = b.lastActive, p = b.prevActive;
+    const leads = b.leadGen;
+    const defs = [
+      { label: "Revenue", arr: b.revSeries, kind: "money", th: 0.20, goodUp: true, attr: true },
+      { label: "ROAS", arr: b.roasSeries, kind: "ratio", th: 0.15, goodUp: true, attr: true },
+      { label: leads ? "CPL" : "CAC", arr: b.mom["CAC"] || [], kind: "money", th: 0.20, goodUp: false },
+      ...(leads ? [] : [{ label: "AOV", arr: b.mom["AOV"] || [], kind: "money", th: 0.15, goodUp: true }]),
+      { label: leads ? "Leads" : "Orders", arr: b.ordersSeries, kind: "count", th: 0.25, goodUp: true },
+    ];
+    const fmtVal = (kind, v) => kind === "ratio" ? roasFmt(v) : kind === "money" ? window.inr(v) : window.num(v);
+    defs.forEach(d => {
+      const cur = d.arr[c], prev = d.arr[p];
+      if (cur == null || prev == null || prev <= 0) return;
+      const ch = (cur - prev) / prev;
+      if (Math.abs(ch) < d.th) return;
+      const up = ch > 0;
+      const good = d.goodUp ? up : !up;
+      const channel = d.attr ? attrChannel(b, c, p) : null;
+      const pctTxt = (up ? "+" : "−") + Math.round(Math.abs(ch) * 100) + "%";
+      const mag = Math.abs(ch);
+      const sev = good ? "opportunity" : (mag > 0.4 || (d.label === "ROAS" && cur < 1) ? "critical" : "warn");
+      const where = channel ? ` driven by ${channel}` : "";
+      const msgs = {
+        Revenue: good ? `Revenue up ${pctTxt}${where} — momentum building.` : `Revenue fell ${pctTxt}${where}.`,
+        ROAS: good ? `ROAS improved ${pctTxt}${where} — efficiency rising.` : `ROAS dropped ${pctTxt}${where}.`,
+        CAC: good ? `CAC down ${pctTxt} — acquiring more efficiently.` : `CAC rose ${pctTxt}${where}.`,
+        CPL: good ? `Cost per lead down ${pctTxt}.` : `Cost per lead rose ${pctTxt}${where}.`,
+        AOV: good ? `AOV up ${pctTxt} — larger baskets.` : `AOV fell ${pctTxt}.`,
+        Orders: good ? `Orders up ${pctTxt}${where}.` : `Orders fell ${pctTxt}${where}.`,
+        Leads: good ? `Leads up ${pctTxt}${where}.` : `Leads fell ${pctTxt}${where}.`,
+      };
+      const actions = {
+        Revenue: good ? `Scale ${channel || "top"} budget while ROAS holds; lock in winning creative.` : `Audit ${channel || "top"} campaigns — check pacing, creative fatigue and tracking.`,
+        ROAS: good ? `Increase spend in ${channel || "the winning channel"} gradually and watch CAC.` : `Tighten targeting / pause low-ROAS ${channel || ""} sets; review landing-page CVR.`,
+        CAC: good ? `Reinvest the saving into proven audiences.` : `Refresh creative & audiences in ${channel || "Meta"}; cap CPA on weak ad sets.`,
+        CPL: good ? `Scale the lead campaigns that improved.` : `Tighten lead-form targeting and test new hooks in ${channel || "Meta"}.`,
+        AOV: good ? `Promote the bundles that are working.` : `Test bundles, upsells and free-ship thresholds to lift basket size.`,
+        Orders: good ? `Protect inventory & retention to sustain volume.` : `Check funnel drop-off (ATC→checkout) and offer/urgency.`,
+        Leads: good ? `Keep the lead engine fed; nurture for conversion.` : `Review form friction and lead quality; refresh creative.`,
+      };
+      insights.push({
+        brand: b.key, brandKey: b.key, leadGen: leads, metric: d.label,
+        dir: up ? "up" : "down", good, pct: ch, sev, channel,
+        metricStr: pctTxt, value: fmtVal(d.kind, cur), prevValue: fmtVal(d.kind, prev),
+        month: MO[c], prevMonth: MO[p],
+        msg: msgs[d.label], action: actions[d.label],
+      });
+    });
+    // year-level extremes (no monthly series available)
+    const rr = b.ch.shopify && b.ch.shopify["Return %"];
+    if (rr != null && rr > 0.35) insights.push({ brand: b.key, brandKey: b.key, leadGen: leads, metric: "Return Rate",
+      dir: "up", good: false, sev: "warn", channel: null, metricStr: window.pct(rr, 0), value: window.pct(rr, 0),
+      month: null, msg: `High return rate ${window.pct(rr, 0)} — eroding net revenue.`,
+      action: `Review sizing/quality and PDP expectations; flag high-return SKUs.` });
+  });
+  const insSev = { critical: 0, warn: 1, opportunity: 2, review: 3 };
+  insights.sort((a, b) => (insSev[a.sev] - insSev[b.sev]) || (Math.abs(b.pct || 0) - Math.abs(a.pct || 0)));
+
   // ---- Team rollup ----
   const teamMap = {};
   brands.forEach(b => {
@@ -101,6 +176,6 @@ window.buildModel = function () {
   const gt = A.grandTotal;
   const activeBrands = brands.filter(b => b.active);
 
-  window.MODEL = { brands, byName, alerts, team, grandTotal: gt, activeBrands, months: A.meta.months, playbook: A.playbook || [] };
+  window.MODEL = { brands, byName, alerts, insights, team, grandTotal: gt, activeBrands, months: A.meta.months, playbook: A.playbook || [] };
   return window.MODEL;
 };

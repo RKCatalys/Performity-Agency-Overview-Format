@@ -54,20 +54,32 @@ function Team({ navigate }) {
   );
 }
 
-/* ---------------- Alerts ---------------- */
-const SEV = { critical: { l: "Critical", c: "bad" }, warn: { l: "Warning", c: "warn" }, review: { l: "Review", c: "review" }, info: { l: "Info", c: "neutral" } };
+/* ---------------- Alerts & insights ---------------- */
+const SEV = { critical: { l: "Critical", c: "bad" }, warn: { l: "Warning", c: "warn" }, opportunity: { l: "Opportunity", c: "good" }, review: { l: "Review", c: "review" }, info: { l: "Info", c: "neutral" } };
+// merge smart MoM insights with structural status flags into one ranked stream
+function buildAlertStream(M) {
+  const ins = (M.insights || []).map(x => ({
+    sev: x.sev, type: x.metric + " " + (x.dir === "up" ? "▲" : "▼"), brand: x.brand,
+    msg: x.msg, action: x.action, metric: x.metricStr, since: x.prevMonth && x.month ? x.prevMonth + "→" + x.month : null,
+  }));
+  const flags = (M.alerts || []).filter(a => a.type !== "Revenue drop").map(a => ({
+    sev: a.sev, type: a.type, brand: a.brand, msg: a.msg, metric: a.metric, action: null,
+  }));
+  const rank = { critical: 0, warn: 1, opportunity: 2, review: 3, info: 4 };
+  return [...ins, ...flags].sort((a, b) => rank[a.sev] - rank[b.sev]);
+}
 function Alerts({ navigate }) {
   const M = window.MODEL;
   const [sev, setSev] = useStateM("all");
-  let list = M.alerts;
-  if (sev !== "all") list = list.filter(a => a.sev === sev);
-  const counts = { critical: 0, warn: 0, review: 0, info: 0 };
-  M.alerts.forEach(a => counts[a.sev]++);
+  const all = buildAlertStream(M);
+  let list = sev === "all" ? all : all.filter(a => a.sev === sev);
+  const counts = { critical: 0, warn: 0, opportunity: 0, review: 0, info: 0 };
+  all.forEach(a => counts[a.sev] = (counts[a.sev] || 0) + 1);
   return (
     <div className="screen">
       <div className="page-head">
-        <div><div className="crumb">Monitoring</div><h1>Alerts</h1>
-          <p className="sub">{M.alerts.length} signals across the portfolio · auto-derived from the latest sync</p></div>
+        <div><div className="crumb">Monitoring</div><h1>Alerts &amp; insights</h1>
+          <p className="sub">{all.length} signals · month-over-month change detection with recommended actions</p></div>
       </div>
       <div className="alert-summary">
         {Object.entries(SEV).map(([k, v]) => (
@@ -81,12 +93,18 @@ function Alerts({ navigate }) {
           <div className={"alert-item " + SEV[a.sev].c} key={i} onClick={() => navigate("brand", a.brand)}>
             <span className="alert-bar" />
             <div className="alert-body">
-              <div className="alert-row1"><span className="alert-type">{a.type}</span><span className="alert-brand">{a.brand}</span></div>
+              <div className="alert-row1">
+                <span className="alert-type">{a.type}</span>
+                <span className="alert-brand">{a.brand}</span>
+                {a.since && <span className="alert-since">{a.since}</span>}
+              </div>
               <div className="alert-msg">{a.msg}</div>
+              {a.action && <div className="alert-action"><span className="aa-k">Recommended</span> {a.action}</div>}
             </div>
             <div className="alert-metric mono">{a.metric}</div>
           </div>
         ))}
+        {!list.length && <div className="empty">No signals in this category.</div>}
       </div>
     </div>
   );
