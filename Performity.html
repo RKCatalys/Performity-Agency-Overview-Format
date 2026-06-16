@@ -41,6 +41,20 @@ body[data-theme="dark"] .scrum-table thead .total-col{ background:#16314d; }
 body[data-theme="dark"] .scrum-table .year-col{ background:#1d2740; }
 body[data-theme="dark"] .scrum-table thead .year-col{ background:#222d49; }
 body[data-theme="dark"] .uploader{ background:radial-gradient(1100px 560px at 50% -15%, #1a1740 0%, #0f2030 35%, var(--bg) 70%); }
+/* dark-mode contrast: keep text readable on highlighted cells/chips */
+body[data-theme="dark"] .chip.on{ background:var(--accent); color:#fff; border-color:var(--accent); }
+body[data-theme="dark"] .seg.on{ color:#fff; }
+body[data-theme="dark"] .scrum-table tbody tr:hover .metric-col{ background:#15314c; }
+body[data-theme="dark"] .scrum-table tbody tr:hover .trend-cell{ background:#15314c; }
+body[data-theme="dark"] .data-table tbody tr:hover{ background:var(--accent-soft); }
+body[data-theme="dark"] .data-table .sticky{ background:var(--surface); }
+body[data-theme="dark"] .roas-pill.good{ background:#0e2a2a; color:#43d6c6; }
+body[data-theme="dark"] .roas-pill.warn{ background:#2c2110; color:#f0b75e; }
+body[data-theme="dark"] .roas-pill.bad{ background:#2e1620; color:#f58aa2; }
+body[data-theme="dark"] .badge.good{ color:#43d6c6; } body[data-theme="dark"] .badge.warn{ color:#f0b75e; }
+body[data-theme="dark"] .badge.accent{ color:var(--accent-strong); }
+body[data-theme="dark"] .axb{ fill:#43d6c6; }
+body[data-theme="dark"] .kpi-value.good{ color:#43d6c6; } body[data-theme="dark"] .kpi-value.bad{ color:#f58aa2; } body[data-theme="dark"] .kpi-value.warn{ color:#f0b75e; }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{font-family:var(--ui); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.45;}
@@ -82,7 +96,7 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .topbar-right{margin-left:auto; display:flex; align-items:center; gap:14px;}
 .sync{font-size:12px; color:var(--muted);} .sync b{color:var(--text-2); font-weight:600;}
 .user-av{width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center;}
-.content{padding:24px 28px 64px; max-width:1280px; width:100%; margin:0 auto;}
+.content{padding:24px 32px 64px; max-width:1560px; width:100%; margin:0 auto;}
 
 /* ---- Page head ---- */
 .page-head{display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:20px; gap:16px; flex-wrap:wrap;}
@@ -95,6 +109,13 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 /* ---- KPI ---- */
 .kpi-row{display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:18px;}
 .kpi-row.six{grid-template-columns:repeat(6,1fr);}
+.kpi-row.seven{grid-template-columns:repeat(7,1fr);}
+.ov-status{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; color:var(--text-2);}
+.ov-status .ov-sep{color:var(--muted);}
+.ov-status .ov-date{color:var(--text);}
+.live-dot{width:8px; height:8px; border-radius:50%; background:var(--good); box-shadow:0 0 0 0 rgba(18,179,166,.5); animation:livePulse 1.8s infinite;}
+.live-txt{color:var(--good); font-weight:700; letter-spacing:.02em;}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(18,179,166,.45);}70%{box-shadow:0 0 0 7px rgba(18,179,166,0);}100%{box-shadow:0 0 0 0 rgba(18,179,166,0);}}
 .kpi{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:var(--kpi-pad); box-shadow:var(--shadow);}
 .kpi-top{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; min-height:22px;}
 .kpi-label{font-size:11.5px; font-weight:600; color:var(--text-2); letter-spacing:.01em;}
@@ -486,6 +507,7 @@ function App({ onReset, fileInfo, onRefresh }) {
   useEffect(() => { localStorage.setItem("performity.cur", cur); }, [cur]);
   // set the active display currency before any view renders (source data is INR)
   window.applyCurrency(cur, fx);
+  window.__perfInfo = fileInfo;
   const parseHash = () => {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
     const [screen, ...rest] = h.split("/");
@@ -530,7 +552,7 @@ function App({ onReset, fileInfo, onRefresh }) {
         <header className="topbar">
           <TopSearch navigate={navigate} />
           <div className="topbar-right">
-            <span className="sync">{(window.AGENCY && window.AGENCY.meta.year) || "CY2026"} · <b>{M.activeBrands.length}</b> active brands{fileInfo && fileInfo.source === "gsheet" ? " · live" : ""}</span>
+            <span className="sync">{new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · <b>{M.activeBrands.length}</b> active{fileInfo && fileInfo.source === "gsheet" ? " · live" : ""}</span>
             <select className="cur-select" value={cur} onChange={e => setCur(e.target.value)}
               title={cur === "INR" ? "Display currency (data is in ₹)" : "Converted from ₹ at live rate " + (window.CURRENCY.rate ? window.CURRENCY.rate.toPrecision(4) : "")}>
               {Object.keys(window.CURRENCIES).map(code => <option key={code} value={code}>{code}</option>)}

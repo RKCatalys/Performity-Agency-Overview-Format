@@ -45,6 +45,14 @@ function Overview({ navigate }) {
   const pm = useMemoV(() => portfolioMonthly(M.brands), [M]);
   const gt = M.grandTotal;
   const blendedRoas = gt.dashRev / gt.spend;
+  // portfolio return rate = gross-weighted average of brands' Shopify return %
+  let rN = 0, rD = 0;
+  M.brands.forEach(b => { const rr = b.ch.shopify && b.ch.shopify["Return %"]; const g = b.grossSales || 0; if (rr != null && g > 0) { rN += rr * g; rD += g; } });
+  const returnRate = rD ? rN / rD : null;
+  const now = new Date();
+  const fmtDay = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const info = window.__perfInfo;
+  const updated = info && info.at ? new Date(info.at) : null;
 
   let rows = M.brands.slice();
   if (filter === "active") rows = rows.filter(b => b.active);
@@ -76,18 +84,21 @@ function Overview({ navigate }) {
           <h1>Agency Overview</h1>
           <p className="sub">Full year · CY2026 · {M.activeBrands.length} active of {M.brands.length} brands</p>
         </div>
-        <div className="period">
-          <button className="seg on">FY2026</button>
-          <button className="seg">Q2</button>
-          <button className="seg">MTD</button>
+        <div className="ov-status">
+          <span className="live-dot" /><span className="live-txt">Live</span>
+          <span className="ov-sep">·</span>
+          <span className="ov-date">{fmtDay(now)}</span>
+          {updated && <><span className="ov-sep">·</span><span className="muted-sm">Updated {updated.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></>}
         </div>
       </div>
 
-      <div className="kpi-row">
+      <div className="kpi-row seven">
         <KPI label="Ad Spend" value={inr(gt.spend)} sub={"GST " + inr(gt.gstSpend)} spark={pm.spend} />
         <KPI label="Dashboard Revenue" value={inr(gt.dashRev)} sub="tracked attributed" spark={pm.rev} sparkColor="var(--good)" />
         <KPI label="Blended ROAS" value={roas(blendedRoas)} sub="Dash Rev ÷ Spend" tone={roasHealth(blendedRoas)} spark={pm.roas} sparkColor="var(--good)" />
         <KPI label="Orders" value={num(gt.orders)} sub={"AOV " + inr(gt.aov)} spark={pm.orders} sparkColor="var(--violet)" />
+        <KPI label="AOV" value={gt.aov ? inr(gt.aov) : "—"} sub="blended" />
+        <KPI label="Return Rate" value={returnRate != null ? pct(returnRate, 1) : "—"} sub="gross-weighted" />
         <KPI label="Blended CAC" value={inr(gt.cac)} sub="cost / acquisition" />
       </div>
 
