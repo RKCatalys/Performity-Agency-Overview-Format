@@ -95,74 +95,89 @@ window.buildModel = function () {
     if (!dMeta && !dG) return null;
     return Math.abs(dG) > Math.abs(dMeta) ? "Google" : "Meta";
   };
+  // Insights focus on EFFICIENCY (ROAS, CAC/CPL, AOV, CVR) and frame volume moves
+  // as spend-driven context — a revenue drop that just tracks lower spend is not a
+  // signal. Compares the two most recent COMPLETE months (skips a partial latest one).
   const insights = [];
   const MO = window.MONTHS;
+  const pctc = (cur, prev) => (cur != null && prev != null && prev > 0) ? (cur - prev) / prev : null;
+  const pctTxt = (ch) => (ch >= 0 ? "+" : "−") + Math.round(Math.abs(ch) * 100) + "%";
   brands.forEach(b => {
-    if (!b.active || b.lastActive <= 0 || b.prevActive < 0) return;
+    if (!b.active) return;
+    const leads = b.leadGen;
+    const push = (o) => insights.push(Object.assign({ brand: b.key, brandKey: b.key, leadGen: leads, channel: null, month: null, prevMonth: null, pct: null }, o));
+
+    // structural (level-based, not change): unprofitable
+    if (b.dashRoas != null && b.dashRoas > 0 && b.dashRoas < 1) {
+      push({ metric: "ROAS", dir: "down", good: false, sev: "critical", metricStr: roasFmt(b.dashRoas), pct: -(1 - b.dashRoas),
+        msg: `Unprofitable — blended ROAS ${roasFmt(b.dashRoas)} (spend exceeds tracked revenue).`,
+        action: `Pause the lowest-ROAS ad sets and verify revenue tracking before any scaling.` });
+    }
+    if (b.lastActive <= 0 || b.prevActive < 0) return;
     let c = b.lastActive, p = b.prevActive;
-    // if the most recent active month looks partial (spend << prior month), compare
-    // the two prior complete months instead so end-of-period stubs don't over-flag
     const sp = b.spendSeries;
-    if (p >= 0 && sp[p] > 0 && (sp[c] || 0) < 0.4 * sp[p]) {
+    if (p >= 0 && sp[p] > 0 && (sp[c] || 0) < 0.4 * sp[p]) { // drop a partial latest month
       c = p; p = -1;
       for (let i = c - 1; i >= 0; i--) { if ((sp[i] || 0) > 0 || (b.revSeries[i] || 0) > 0) { p = i; break; } }
     }
     if (c <= 0 || p < 0) return;
-    const leads = b.leadGen;
-    const defs = [
-      { label: "Revenue", arr: b.revSeries, kind: "money", th: 0.20, goodUp: true, attr: true },
-      { label: "ROAS", arr: b.roasSeries, kind: "ratio", th: 0.15, goodUp: true, attr: true },
-      { label: leads ? "CPL" : "CAC", arr: b.mom["CAC"] || [], kind: "money", th: 0.20, goodUp: false },
-      ...(leads ? [] : [{ label: "AOV", arr: b.mom["AOV"] || [], kind: "money", th: 0.15, goodUp: true }]),
-      { label: leads ? "Leads" : "Orders", arr: b.ordersSeries, kind: "count", th: 0.25, goodUp: true },
-    ];
-    const fmtVal = (kind, v) => kind === "ratio" ? roasFmt(v) : kind === "money" ? window.inr(v) : window.num(v);
-    defs.forEach(d => {
-      const cur = d.arr[c], prev = d.arr[p];
-      if (cur == null || prev == null || prev <= 0) return;
-      const ch = (cur - prev) / prev;
-      if (Math.abs(ch) < d.th) return;
-      const up = ch > 0;
-      const good = d.goodUp ? up : !up;
-      const channel = d.attr ? attrChannel(b, c, p) : null;
-      const pctTxt = (up ? "+" : "−") + Math.round(Math.abs(ch) * 100) + "%";
-      const mag = Math.abs(ch);
-      const sev = good ? "opportunity" : (mag > 0.4 || (d.label === "ROAS" && cur < 1) ? "critical" : "warn");
-      const where = channel ? ` driven by ${channel}` : "";
-      const msgs = {
-        Revenue: good ? `Revenue up ${pctTxt}${where} — momentum building.` : `Revenue fell ${pctTxt}${where}.`,
-        ROAS: good ? `ROAS improved ${pctTxt}${where} — efficiency rising.` : `ROAS dropped ${pctTxt}${where}.`,
-        CAC: good ? `CAC down ${pctTxt} — acquiring more efficiently.` : `CAC rose ${pctTxt}${where}.`,
-        CPL: good ? `Cost per lead down ${pctTxt}.` : `Cost per lead rose ${pctTxt}${where}.`,
-        AOV: good ? `AOV up ${pctTxt} — larger baskets.` : `AOV fell ${pctTxt}.`,
-        Orders: good ? `Orders up ${pctTxt}${where}.` : `Orders fell ${pctTxt}${where}.`,
-        Leads: good ? `Leads up ${pctTxt}${where}.` : `Leads fell ${pctTxt}${where}.`,
-      };
-      const actions = {
-        Revenue: good ? `Scale ${channel || "top"} budget while ROAS holds; lock in winning creative.` : `Audit ${channel || "top"} campaigns — check pacing, creative fatigue and tracking.`,
-        ROAS: good ? `Increase spend in ${channel || "the winning channel"} gradually and watch CAC.` : `Tighten targeting / pause low-ROAS ${channel || ""} sets; review landing-page CVR.`,
-        CAC: good ? `Reinvest the saving into proven audiences.` : `Refresh creative & audiences in ${channel || "Meta"}; cap CPA on weak ad sets.`,
-        CPL: good ? `Scale the lead campaigns that improved.` : `Tighten lead-form targeting and test new hooks in ${channel || "Meta"}.`,
-        AOV: good ? `Promote the bundles that are working.` : `Test bundles, upsells and free-ship thresholds to lift basket size.`,
-        Orders: good ? `Protect inventory & retention to sustain volume.` : `Check funnel drop-off (ATC→checkout) and offer/urgency.`,
-        Leads: good ? `Keep the lead engine fed; nurture for conversion.` : `Review form friction and lead quality; refresh creative.`,
-      };
-      insights.push({
-        brand: b.key, brandKey: b.key, leadGen: leads, metric: d.label,
-        dir: up ? "up" : "down", good, pct: ch, sev, channel,
-        metricStr: pctTxt, value: fmtVal(d.kind, cur), prevValue: fmtVal(d.kind, prev),
-        month: MO[c], prevMonth: MO[p],
-        msg: msgs[d.label], action: actions[d.label],
-      });
-    });
-    // year-level extremes (no monthly series available)
+    const channel = attrChannel(b, c, p);
+    const spendCh = pctc(sp[c], sp[p]);
+    const roasCh = pctc(b.roasSeries[c], b.roasSeries[p]);
+    const scaleCtx = spendCh != null && Math.abs(spendCh) >= 0.1 ? ` while spend ${spendCh >= 0 ? "rose" : "fell"} ${Math.round(Math.abs(spendCh) * 100)}%` : "";
+    const ctx = { channel, month: MO[c], prevMonth: MO[p] };
+
+    // ROAS — the core efficiency signal
+    if (roasCh != null && Math.abs(roasCh) >= 0.12) {
+      const good = roasCh > 0;
+      const sev = good ? "opportunity" : (b.roasSeries[c] < 1 || Math.abs(roasCh) > 0.3 ? "critical" : "warn");
+      const msg = good
+        ? (spendCh > 0.1 ? `ROAS up ${pctTxt(roasCh)}${scaleCtx} — efficient scaling${channel ? " in " + channel : ""}.` : `ROAS improved ${pctTxt(roasCh)} — efficiency rising${channel ? " in " + channel : ""}.`)
+        : (spendCh > 0.1 ? `ROAS dropped ${pctTxt(roasCh)}${scaleCtx} — scaling past the efficient point.` : `ROAS dropped ${pctTxt(roasCh)} (spend ~flat) — efficiency erosion${channel ? " in " + channel : ""}.`);
+      const action = good ? `Keep scaling ${channel || "the winning channel"} in steps while ROAS holds; watch CAC.`
+        : (spendCh > 0.1 ? `Pull budget back to the efficient tier; pause the weakest ${channel || ""} sets.` : `Refresh creative & audiences in ${channel || "Meta"}; check landing-page & checkout CVR.`);
+      push({ ...ctx, metric: "ROAS", dir: good ? "up" : "down", good, sev, pct: roasCh, metricStr: pctTxt(roasCh), value: roasFmt(b.roasSeries[c]), msg, action });
+    }
+    // CAC / CPL — cost efficiency
+    const cacArr = b.mom["CAC"] || [], cacCh = pctc(cacArr[c], cacArr[p]);
+    if (cacCh != null && Math.abs(cacCh) >= 0.18) {
+      const good = cacCh < 0, lbl = leads ? "CPL" : "CAC";
+      push({ ...ctx, metric: lbl, dir: cacCh > 0 ? "up" : "down", good, sev: good ? "opportunity" : "warn", pct: cacCh, metricStr: pctTxt(cacCh), value: window.inr(cacArr[c]),
+        msg: good ? `${lbl} down ${pctTxt(cacCh)} — acquiring more efficiently.` : `${lbl} rose ${pctTxt(cacCh)}${scaleCtx}${channel ? " in " + channel : ""}.`,
+        action: good ? `Reinvest the saving into the proven audiences.` : `Refresh creative & audiences in ${channel || "Meta"}; cap CPA on weak sets.` });
+    }
+    // AOV — basket size (e-commerce only)
+    if (!leads) {
+      const aovArr = b.mom["AOV"] || [], aovCh = pctc(aovArr[c], aovArr[p]);
+      if (aovCh != null && Math.abs(aovCh) >= 0.15) {
+        const good = aovCh > 0;
+        push({ ...ctx, metric: "AOV", dir: good ? "up" : "down", good, sev: good ? "opportunity" : "warn", pct: aovCh, metricStr: pctTxt(aovCh), value: window.inr(aovArr[c]),
+          msg: good ? `AOV up ${pctTxt(aovCh)} — larger baskets.` : `AOV fell ${pctTxt(aovCh)} — smaller baskets.`,
+          action: good ? `Promote the bundles/upsells that are working.` : `Test bundles, upsells and free-ship thresholds.` });
+      }
+    }
+    // Conversion rate (Meta funnel: orders / clicks)
+    const clC = chMo(b.key, "meta", "Clicks", c), orC = chMo(b.key, "meta", "Orders", c), clP = chMo(b.key, "meta", "Clicks", p), orP = chMo(b.key, "meta", "Orders", p);
+    const cvrC = clC ? orC / clC : null, cvrP = clP ? orP / clP : null, cvrCh = pctc(cvrC, cvrP);
+    if (cvrCh != null && Math.abs(cvrCh) >= 0.2) {
+      const good = cvrCh > 0;
+      push({ ...ctx, metric: "CVR", dir: good ? "up" : "down", good, sev: good ? "opportunity" : "warn", pct: cvrCh, metricStr: pctTxt(cvrCh), value: (cvrC * 100).toFixed(2) + "%",
+        msg: good ? `Meta conversion rate up ${pctTxt(cvrCh)} — funnel converting better.` : `Meta conversion rate fell ${pctTxt(cvrCh)} — funnel drop-off worsening.`,
+        action: good ? `Push more traffic to the converting offers/LPs.` : `Audit ATC→checkout drop-off; test offer, urgency and the PDP/landing page.` });
+    }
+    // Spend pace — context only (not a crisis), when efficiency didn't already explain it
+    if (spendCh != null && Math.abs(spendCh) >= 0.30 && (roasCh == null || Math.abs(roasCh) < 0.12)) {
+      const up = spendCh > 0;
+      push({ ...ctx, metric: "Spend", dir: up ? "up" : "down", good: up, sev: up ? "opportunity" : "review", pct: spendCh, metricStr: pctTxt(spendCh), value: window.inr(sp[c]),
+        msg: up ? `Spend scaled ${pctTxt(spendCh)} with ROAS ~flat — volume following budget.` : `Spend pulled back ${pctTxt(spendCh)} — lower revenue here is expected, not an efficiency signal.`,
+        action: up ? `Confirm efficiency holds at the new spend level; watch CAC weekly.` : `Reallocate the freed budget to higher-ROAS brands/channels.` });
+    }
+    // year-level return-rate extreme
     const rr = b.ch.shopify && b.ch.shopify["Return %"];
-    if (rr != null && rr > 0.35) insights.push({ brand: b.key, brandKey: b.key, leadGen: leads, metric: "Return Rate",
-      dir: "up", good: false, sev: "warn", channel: null, metricStr: window.pct(rr, 0), value: window.pct(rr, 0),
-      month: null, msg: `High return rate ${window.pct(rr, 0)} — eroding net revenue.`,
-      action: `Review sizing/quality and PDP expectations; flag high-return SKUs.` });
+    if (rr != null && rr > 0.35) push({ metric: "Return Rate", dir: "up", good: false, sev: "warn", metricStr: window.pct(rr, 0), value: window.pct(rr, 0),
+      msg: `High return rate ${window.pct(rr, 0)} — eroding net revenue.`, action: `Review sizing/quality & PDP expectations; flag high-return SKUs.` });
   });
-  const insSev = { critical: 0, warn: 1, opportunity: 2, review: 3 };
+  const insSev = { critical: 0, warn: 1, opportunity: 2, review: 3, info: 4 };
   insights.sort((a, b) => (insSev[a.sev] - insSev[b.sev]) || (Math.abs(b.pct || 0) - Math.abs(a.pct || 0)));
 
   // ---- Team rollup ----

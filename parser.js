@@ -105,18 +105,35 @@
   }
 
   function parseBrandSheet(rows) {
+    // some sheets put the title/section banners in column B (col A empty) — read both
+    const txt = (r, i) => { const v = cell(r, i); return typeof v === "string" ? v.trim() : ""; };
     let tlLine = null, gst = null;
-    for (let i = 0; i < Math.min(6, rows.length); i++) {
-      const a = cell(rows[i], 0);
-      if (typeof a === "string" && a.trim().toLowerCase().startsWith("tl ")) tlLine = a.trim();
-      if (typeof a === "string" && a.toLowerCase().includes("gst") && a.includes("%")) gst = get(rows[i], 1);
+    for (let i = 0; i < Math.min(7, rows.length); i++) {
+      const s = txt(rows[i], 0) || txt(rows[i], 1);
+      if (s.toLowerCase().startsWith("tl ")) tlLine = s;
+      if (s.toLowerCase().includes("gst") && s.includes("%")) gst = get(rows[i], 1) != null ? get(rows[i], 1) : get(rows[i], 2);
     }
+    // week date ranges from the header row (e.g. "W1\n01-07" -> "01-07")
+    let hdrRow = null;
+    for (const r of rows) { if (norm(txt(r, 0)) === "metric" || norm(txt(r, 1)) === "metric") { hdrRow = r; break; } }
+    const weekDates = MONTH_COLS.map(({ weeks }) => weeks.map((c) => {
+      const v = hdrRow ? cell(hdrRow, c) : null;
+      if (typeof v !== "string") return null;
+      const parts = v.split(/\n/); const d = parts.length > 1 ? parts[1].trim() : null;
+      return (!d || d === "—" || d === "-") ? null : d;
+    }));
+
     const weekly = {};
     const channels = { meta: {}, google: {}, other: {}, shopify: {} };
     let cur = null;
     for (const r of rows) {
       const a = cell(r, 0);
-      if (a == null || !String(a).trim()) continue;
+      // section banner may live in col A or (when A is blank) col B
+      if (a == null || !String(a).trim()) {
+        const b = txt(r, 1);
+        if (b && isSectionHeader(b)) { cur = sectionOf(b); weekly[cur] = { order: [], metrics: {} }; }
+        continue;
+      }
       const lbl = String(a).trim();
       if (isSectionHeader(lbl)) {
         cur = sectionOf(lbl); weekly[cur] = { order: [], metrics: {} }; continue;
@@ -140,7 +157,7 @@
     // guarantee all sections exist (views assume order:[] + metrics:{})
     for (const s of ["overall","meta","google","other","shopify"])
       if (!weekly[s]) weekly[s] = { order: [], metrics: {} };
-    return { weekly, channels, tlLine, gst };
+    return { weekly, channels, tlLine, gst, weekDates };
   }
 
   function mkSummaryRow(r, name, gross, spend) {
@@ -282,7 +299,7 @@
       const parsed = parseBrandSheet(rowsOf(wb, tab));
       WEEKLY[tab] = parsed.weekly;
       AGENCY.channels[tab] = parsed.channels;
-      WEEKLY_META[tab] = { tl: parsed.tlLine, gst: parsed.gst };
+      WEEKLY_META[tab] = { tl: parsed.tlLine, gst: parsed.gst, weekDates: parsed.weekDates };
     }
     const cand = brandTabs.map((t) => ({ k: norm(t), o: t }));
 

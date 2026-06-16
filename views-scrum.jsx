@@ -42,7 +42,7 @@ function sectionHasData(W, key) {
   if (!mets) return false;
   return Object.values(mets).some(m => (m.year != null && m.year !== 0));
 }
-function buildColumns(W, period, activeMonths) {
+function buildColumns(W, period, activeMonths, weekDates) {
   const cols = [];
   if (period === "quarter") {
     ["Q1", "Q2", "Q3", "Q4"].forEach((q, i) => cols.push({ kind: "qtr", label: q, qi: i }));
@@ -53,7 +53,8 @@ function buildColumns(W, period, activeMonths) {
   } else {
     activeMonths.forEach(mi => {
       const n = weeksPerMonth(W, mi);
-      for (let w = 0; w < n; w++) cols.push({ kind: "wk", label: "W" + (w + 1), mi, wi: w, group: MONTHS[mi], first: w === 0 });
+      for (let w = 0; w < n; w++) cols.push({ kind: "wk", label: "W" + (w + 1), mi, wi: w, group: MONTHS[mi], first: w === 0,
+        dates: weekDates && weekDates[mi] ? weekDates[mi][w] : null });
       cols.push({ kind: "mo", label: "Mo", mi, total: true, group: MONTHS[mi], last: true });
     });
     cols.push({ kind: "year", label: "CY26", total: true });
@@ -70,16 +71,24 @@ function cellValue(metric, col) {
 }
 // a "data" column carries a period observation (not a roll-up total / year)
 function isDataCol(c) { return c.kind === "wk" || c.kind === "qtr" || (c.kind === "mo" && !c.total); }
-// period-over-period deltas aligned to columns (null where not applicable)
+// period-over-period deltas aligned to columns. In weekly view, week cells get
+// week-over-week and the monthly "Mo" totals get month-over-month (so you see both).
 function rowDeltas(metric, columns) {
-  const out = []; let prev = null;
+  const out = []; let prevData = null, prevMo = null;
   for (const c of columns) {
-    if (!isDataCol(c)) { out.push(null); continue; }
-    const v = cellValue(metric, c);
-    let d = null;
-    if (v != null && prev != null && prev !== 0) d = (v - prev) / Math.abs(prev);
-    if (v != null) prev = v;
-    out.push(d);
+    if (isDataCol(c)) {
+      const v = cellValue(metric, c);
+      let d = null;
+      if (v != null && prevData != null && prevData !== 0) d = (v - prevData) / Math.abs(prevData);
+      if (v != null) prevData = v;
+      out.push(d);
+    } else if (c.kind === "mo" && c.total) {
+      const v = cellValue(metric, c);
+      let d = null;
+      if (v != null && prevMo != null && prevMo !== 0) d = (v - prevMo) / Math.abs(prevMo);
+      if (v != null) prevMo = v;
+      out.push(d);
+    } else { out.push(null); }
   }
   return out;
 }
@@ -146,7 +155,9 @@ function ScrumSection({ W, secDef, period, columns, activeMonths, open, onToggle
               <tr>
                 <th className="metric-col">Metric</th>
                 {columns.map((c, i) => (
-                  <th key={i} className={"n " + (c.total ? "total-col " : "") + (c.kind === "year" ? "year-col " : "") + (c.first ? "grp-start" : "")}>{c.label}</th>
+                  <th key={i} className={"n " + (c.total ? "total-col " : "") + (c.kind === "year" ? "year-col " : "") + (c.first ? "grp-start" : "")}>
+                    {c.label}{c.dates && <span className="th-date">{c.dates}</span>}
+                  </th>
                 ))}
                 <th className="n trend-col">Trend</th>
               </tr>
@@ -218,7 +229,8 @@ function ScrumGrid({ brandKey }) {
   const lo = Math.min(rFrom, rTo), hi = Math.max(rFrom, rTo);
   const ranged = fullActive.filter(mi => mi >= lo && mi <= hi);
   const activeMonths = (period === "quarter" || !ranged.length) ? fullActive : ranged;
-  const columns = buildColumns(W, period, activeMonths);
+  const weekDates = (window.WEEKLY_META[brandKey] || {}).weekDates;
+  const columns = buildColumns(W, period, activeMonths, weekDates);
   const visibleSecs = SCRUM_SECTIONS.filter(s => sectionHasData(W, s.key));
   const rangeActive = range && (lo !== fullActive[0] || hi !== fullActive[fullActive.length - 1]);
 
@@ -281,7 +293,7 @@ function ScrumGrid({ brandKey }) {
       <div className="scrum-legend">
         <span className="sl-item"><span className="sl-sw total-col"></span>Period total</span>
         <span className="sl-item"><span className="sl-sw year-col"></span>Full year</span>
-        {showWoW && <span className="sl-item"><span className="wk-d good">▲</span>/<span className="wk-d bad">▼</span> vs prior {period === "week" ? "week" : period === "month" ? "month" : "quarter"}</span>}
+        {showWoW && <span className="sl-item"><span className="wk-d good">▲</span>/<span className="wk-d bad">▼</span> {period === "week" ? "WoW on weeks · MoM on month totals" : "vs prior " + (period === "month" ? "month" : "quarter")}</span>}
         <span className="sl-hint">Scroll horizontally to see every {period === "week" ? "week" : "period"} →</span>
       </div>
       <div className="scrum-sections">

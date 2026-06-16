@@ -85,7 +85,8 @@ function buildAlertStream(M) {
     sev: x.sev, type: x.metric + " " + (x.dir === "up" ? "▲" : "▼"), brand: x.brand,
     msg: x.msg, action: x.action, metric: x.metricStr, since: x.prevMonth && x.month ? x.prevMonth + "→" + x.month : null,
   }));
-  const flags = (M.alerts || []).filter(a => a.type !== "Revenue drop").map(a => ({
+  // keep only structural legacy flags not already covered by the insights engine
+  const flags = (M.alerts || []).filter(a => a.type === "Data anomaly" || a.type === "Awaiting data").map(a => ({
     sev: a.sev, type: a.type, brand: a.brand, msg: a.msg, metric: a.metric, action: null,
   }));
   const rank = { critical: 0, warn: 1, opportunity: 2, review: 3, info: 4 };
