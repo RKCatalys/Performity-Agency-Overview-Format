@@ -105,7 +105,8 @@ function Sparkline({ data, w = 96, h = 28, color = "var(--accent)", fill = true 
 }
 
 // grouped bar + line combo: monthly spend bars + ROAS line
-function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel }) {
+function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel, barFmt }) {
+  const bf = barFmt || (v => inr(v));
   const padL = 56, padR = 48, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
   const barVals = bars.map(v => v ?? 0);
@@ -128,13 +129,18 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel 
         const yy = padT + ih - (ih / ticks) * i;
         return <g key={i}>
           <line x1={padL} y1={yy} x2={w - padR} y2={yy} stroke="var(--border)" strokeWidth="1" />
-          <text x={padL - 8} y={yy + 3} textAnchor="end" className="ax">{inr(maxBar / ticks * i).replace("₹","")}</text>
+          <text x={padL - 8} y={yy + 3} textAnchor="end" className="ax">{bf(maxBar / ticks * i).replace("₹","")}</text>
         </g>;
       })}
       {months.map((m, i) => (
         <g key={i}>
           <rect x={x(i) - bw / 2} y={yBar(barVals[i])} width={bw} height={Math.max(0, padT + ih - yBar(barVals[i]))}
-            rx="3" fill="var(--accent)" opacity={barVals[i] ? 0.85 : 0.12} />
+            rx="3" fill="var(--accent)" opacity={barVals[i] ? 0.85 : 0.12}>
+            <title>{m + " · " + bf(bars[i]) + (lineVals[i] != null ? " · ROAS " + lineVals[i].toFixed(2) + "×" : "")}</title>
+          </rect>
+          <rect x={x(i) - slot / 2} y={padT} width={slot} height={ih} fill="transparent">
+            <title>{m + " · " + bf(bars[i]) + (lineVals[i] != null ? " · ROAS " + lineVals[i].toFixed(2) + "×" : "")}</title>
+          </rect>
           <text x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>
         </g>
       ))}
@@ -146,17 +152,22 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel 
   );
 }
 
-function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v }) {
+function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false }) {
   const padL = 56, padR = 16, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
   const all = series.flatMap(s => s.data.filter(v => v != null));
   const max = Math.max(...all, 1) * 1.1, min = 0;
   const n = months.length;
-  const x = i => padL + (iw / (n - 1)) * i;
+  const x = i => n > 1 ? padL + (iw / (n - 1)) * i : padL + iw / 2;
   const y = v => padT + ih - ((v - min) / (max - min)) * ih;
   const ticks = 4;
+  const gid = "lm" + Math.random().toString(36).slice(2, 7);
   return (
     <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      {fill && <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor={series[series.length - 1].color} stopOpacity="0.22" />
+        <stop offset="1" stopColor={series[series.length - 1].color} stopOpacity="0" />
+      </linearGradient></defs>}
       {Array.from({ length: ticks + 1 }).map((_, i) => {
         const yy = padT + ih - (ih / ticks) * i;
         return <g key={i}><line x1={padL} y1={yy} x2={w - padR} y2={yy} stroke="var(--border)" />
@@ -164,11 +175,13 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v }) {
       })}
       {months.map((m, i) => <text key={i} x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>)}
       {series.map((s, si) => {
-        let path = "", started = false;
-        s.data.forEach((v, i) => { if (v != null) { path += (started ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1) + " "; started = true; } else started = false; });
+        let path = "", started = false, firstX = null, lastX = null;
+        s.data.forEach((v, i) => { if (v != null) { path += (started ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1) + " "; if (firstX == null) firstX = x(i); lastX = x(i); started = true; } else started = false; });
+        const area = (fill && firstX != null) ? path + `L ${lastX} ${padT + ih} L ${firstX} ${padT + ih} Z` : null;
         return <g key={si}>
+          {area && si === series.length - 1 && <path d={area} fill={`url(#${gid})`} />}
           <path d={path} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-          {s.data.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="2.6" fill={s.color} />)}
+          {s.data.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="2.6" fill={s.color}><title>{months[i] + " · " + fmt(v)}</title></circle>)}
         </g>;
       })}
     </svg>
@@ -258,7 +271,37 @@ function isHeadline(label) {
   return /^(total ad spend|dashboard revenue|dashboard roas|shopify gross sales|shopify orders|spend|revenue|roas \(dash\))$/i.test(label.trim());
 }
 
+// Drag-to-resize columns. Returns a ref to attach to a <table>. Widths persist
+// across re-renders because React reuses the same <th> DOM nodes.
+function useColResize() {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    const table = ref.current;
+    if (!table) return;
+    table.style.tableLayout = "fixed";
+    const ths = table.querySelectorAll("thead th");
+    ths.forEach((th) => {
+      if (!th.style.width) th.style.width = th.offsetWidth + "px";
+      if (th.querySelector(".col-resizer")) return;
+      th.style.position = th.style.position || "relative";
+      const res = document.createElement("span");
+      res.className = "col-resizer";
+      let startX = 0, startW = 0;
+      const onMove = (e) => { th.style.width = Math.max(48, startW + (e.pageX - startX)) + "px"; };
+      const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); document.body.style.cursor = ""; };
+      res.addEventListener("mousedown", (e) => {
+        startX = e.pageX; startW = th.offsetWidth;
+        document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp);
+        document.body.style.cursor = "col-resize"; e.preventDefault(); e.stopPropagation();
+      });
+      res.addEventListener("click", (e) => e.stopPropagation());
+      th.appendChild(res);
+    });
+  });
+  return ref;
+}
+
 Object.assign(window, { metricFmt, isHeadline,
   inr, inrFull, num, roas, pct, delta, MONTHS, roasHealth,
-  CURRENCIES, curState, applyCurrency,
+  CURRENCIES, curState, applyCurrency, useColResize,
   Sparkline, ComboChart, LineMulti, Funnel, Donut, Delta, Badge, Avatar });

@@ -42,6 +42,7 @@ function Overview({ navigate }) {
   const M = window.MODEL;
   const [filter, setFilter] = useStateV("active");
   const [sort, setSort] = useStateV({ k: "spend", dir: -1 });
+  const tref = window.useColResize();
   const pm = useMemoV(() => portfolioMonthly(M.brands), [M]);
   const gt = M.grandTotal;
   const blendedRoas = gt.dashRev / gt.spend;
@@ -155,7 +156,7 @@ function Overview({ navigate }) {
           </div>
         </div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table" ref={tref}>
             <thead>
               <tr>
                 <SortH k="name">Brand</SortH>

@@ -52,7 +52,22 @@ function aggKPIs(b, lo, hi) {
   };
 }
 
-const CHART_METRICS = ["Ad Spend", "Dashboard Revenue", "Shopify Gross Sales", "Orders", "AOV", "CAC", "Dashboard ROAS", "GST ROAS", "Net ROAS"];
+// sum a channel section's metrics over a month range from WEEKLY, derive ratios
+function rangeChAgg(key, sec, lo, hi) {
+  const W = window.WEEKLY[key]; const m = W && W[sec] && W[sec].metrics;
+  if (!m) return null;
+  const sum = (name) => { const x = m[name]; if (!x) return null; let s = 0, any = false; for (let i = lo; i <= hi; i++) { const v = x.months[i] && x.months[i].mo; if (v != null) { s += v; any = true; } } return any ? s : null; };
+  const spend = sum("Spend") || 0, rev = sum("Revenue") || 0, orders = sum("Orders") || 0;
+  const clicks = sum("Clicks");
+  return {
+    Spend: spend, Revenue: rev, Orders: orders,
+    "ROAS (Dash)": spend ? rev / spend : null, CAC: orders ? spend / orders : null, AOV: orders ? rev / orders : null,
+    Reach: sum("Reach"), Impressions: sum("Impressions"), Clicks: clicks, "Clicks (link clicks)": clicks,
+    LPV: sum("LPV"), ATC: sum("ATC"), IC: sum("IC"),
+  };
+}
+
+const CHART_METRICS = ["Ad Spend", "Dashboard Revenue", "Shopify Gross Sales", "GST Spend", "Orders", "AOV", "CAC", "Dashboard ROAS", "GST ROAS", "Net ROAS"];
 function isRatioMetric(m) { return m.includes("ROAS"); }
 function isMoneyMetric(m) { return ["Ad Spend", "GST Spend", "Shopify Gross Sales", "Dashboard Revenue", "AOV", "CAC"].includes(m); }
 function chartFmt(m) { return isRatioMetric(m) ? (v => v == null ? "" : (+v).toFixed(1) + "×") : isMoneyMetric(m) ? (v => inr(v).replace("₹", "")) : (v => num(v)); }
@@ -70,15 +85,16 @@ function BrandChart({ b, lo, hi, monthsLabels }) {
   const ratio = isRatioMetric(metric);
   const effType = ratio && type === "combo" ? "line" : type;
 
+  const barFmt = isMoneyMetric(metric) ? (v => inr(v)) : (v => num(v));
   let chart;
-  if (effType === "line") {
+  if (effType === "line" || effType === "area") {
     const ser = [{ data: series, color: "var(--accent)" }];
     if (compare && prev) ser.unshift({ data: prev, color: "var(--muted)" });
-    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} />;
+    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} fill={effType === "area"} />;
   } else if (effType === "bars") {
-    chart = <ComboChart months={monthsLabels} bars={series} line={series.map(() => null)} />;
+    chart = <ComboChart months={monthsLabels} bars={series} line={series.map(() => null)} barFmt={barFmt} />;
   } else { // combo: metric bars + ROAS line
-    chart = <ComboChart months={monthsLabels} bars={series} line={roasLine} />;
+    chart = <ComboChart months={monthsLabels} bars={series} line={roasLine} barFmt={barFmt} />;
   }
 
   return (
@@ -93,6 +109,7 @@ function BrandChart({ b, lo, hi, monthsLabels }) {
             <option value="combo">Bars + ROAS</option>
             <option value="bars">Bars</option>
             <option value="line">Line</option>
+            <option value="area">Area</option>
           </select>
           {effType === "line" && prev && (
             <button className={"tool-btn " + (compare ? "on" : "")} onClick={() => setCompare(c => !c)} title="Overlay the previous period of equal length">
@@ -121,20 +138,24 @@ function BrandDetail({ brandKey, navigate }) {
   const monthsLabels = MONTHS.slice(lo, hi + 1);
   const rangeActive = range && (lo !== active[0] || hi !== active[active.length - 1]);
 
-  const metaSpend = b.ch.meta?.Spend || 0;
-  const googleSpend = b.ch.google?.Spend || 0;
-  const otherSpend = b.ch.other?.Spend || 0;
+  // channel data scoped to the selected range (falls back to year totals)
+  const rMeta = rangeChAgg(b.key, "meta", lo, hi) || b.ch.meta || {};
+  const rGoogle = rangeChAgg(b.key, "google", lo, hi) || b.ch.google || {};
+  const rOther = rangeChAgg(b.key, "other", lo, hi) || b.ch.other || {};
+  const metaSpend = rMeta.Spend || 0;
+  const googleSpend = rGoogle.Spend || 0;
+  const otherSpend = rOther.Spend || 0;
   const chTotal = metaSpend + googleSpend + otherSpend;
   const ret = b.ch.shopify?.["Return %"];
 
   const funnelSteps = [
-    { label: "Reach", value: b.ch.meta?.Reach },
-    { label: "Impressions", value: b.ch.meta?.Impressions },
-    { label: "Link clicks", value: b.ch.meta?.["Clicks (link clicks)"] },
-    { label: "Landing views", value: b.ch.meta?.LPV },
-    { label: "Add to cart", value: b.ch.meta?.ATC },
-    { label: "Checkout", value: b.ch.meta?.IC },
-    { label: "Orders", value: b.ch.meta?.Orders },
+    { label: "Reach", value: rMeta.Reach },
+    { label: "Impressions", value: rMeta.Impressions },
+    { label: "Link clicks", value: rMeta.Clicks },
+    { label: "Landing views", value: rMeta.LPV },
+    { label: "Add to cart", value: rMeta.ATC },
+    { label: "Checkout", value: rMeta.IC },
+    { label: b.leadGen ? "Leads" : "Orders", value: rMeta.Orders },
   ].filter(s => s.value != null);
 
   const metricRows = ["Ad Spend","GST Spend","Shopify Gross Sales","Dashboard Revenue","Dashboard ROAS","GST ROAS","Net ROAS","Orders","AOV","CAC"];
@@ -208,8 +229,8 @@ function BrandDetail({ brandKey, navigate }) {
                     ]}
                     center={<><div className="donut-c-v">{inr(chTotal)}</div><div className="donut-c-l">total</div></>} />
                   <div className="chan-cards">
-                    <ChannelCard title="Meta" color="var(--accent)" ch={b.ch.meta} share={metaSpend / chTotal} />
-                    <ChannelCard title="Google" color="var(--violet)" ch={b.ch.google} share={googleSpend / chTotal} />
+                    <ChannelCard title="Meta" color="var(--accent)" ch={rMeta} share={metaSpend / chTotal} />
+                    <ChannelCard title="Google" color="var(--violet)" ch={rGoogle} share={googleSpend / chTotal} />
                   </div>
                 </div>
               ) : <div className="empty">No channel-level data logged.</div>}

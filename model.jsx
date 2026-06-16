@@ -98,7 +98,15 @@ window.buildModel = function () {
   const MO = window.MONTHS;
   brands.forEach(b => {
     if (!b.active || b.lastActive <= 0 || b.prevActive < 0) return;
-    const c = b.lastActive, p = b.prevActive;
+    let c = b.lastActive, p = b.prevActive;
+    // if the most recent active month looks partial (spend << prior month), compare
+    // the two prior complete months instead so end-of-period stubs don't over-flag
+    const sp = b.spendSeries;
+    if (p >= 0 && sp[p] > 0 && (sp[c] || 0) < 0.4 * sp[p]) {
+      c = p; p = -1;
+      for (let i = c - 1; i >= 0; i--) { if ((sp[i] || 0) > 0 || (b.revSeries[i] || 0) > 0) { p = i; break; } }
+    }
+    if (c <= 0 || p < 0) return;
     const leads = b.leadGen;
     const defs = [
       { label: "Revenue", arr: b.revSeries, kind: "money", th: 0.20, goodUp: true, attr: true },

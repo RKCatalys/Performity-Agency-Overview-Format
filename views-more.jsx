@@ -4,6 +4,7 @@ const { useState: useStateM } = React;
 /* ---------------- Team & ownership ---------------- */
 function Team({ navigate }) {
   const M = window.MODEL;
+  const tref = window.useColResize();
   return (
     <div className="screen">
       <div className="page-head">
@@ -33,7 +34,7 @@ function Team({ navigate }) {
       <div className="card table-card">
         <div className="card-head"><h3>Ownership matrix</h3></div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table" ref={tref}>
             <thead><tr><th>Brand</th><th>Meta lead</th><th>Google lead</th><th className="n">Spend</th><th className="n">ROAS</th><th>Notes</th></tr></thead>
             <tbody>
               {M.brands.filter(b => b.tl.tlMeta || b.tl.tlGoogle).map(b => (
@@ -114,6 +115,7 @@ function Alerts({ navigate }) {
 function DRR({ navigate }) {
   const M = window.MODEL;
   const [sort, setSort] = useStateM({ k: "drr", dir: -1 });
+  const tref = window.useColResize();
   const DAYS = 30;
   const rows = M.activeBrands.map(b => {
     const li = b.lastActive;
@@ -145,7 +147,7 @@ function DRR({ navigate }) {
       <div className="card table-card">
         <div className="card-head"><h3>Per-brand pacing</h3><span className="muted-sm">latest active month</span></div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table" ref={tref}>
             <thead><tr><th>Brand</th><th>Month</th>
               <th className="n" onClick={() => setSort(s => ({ k: "drr", dir: s.k === "drr" ? -s.dir : -1 }))}>Rev / day</th>
               <th className="n">Spend / day</th><th className="n">Day ROAS</th>
