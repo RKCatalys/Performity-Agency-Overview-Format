@@ -129,7 +129,15 @@ function BrandDetail({ brandKey, navigate }) {
   const b = M.byName[brandKey];
   const [tab, setTab] = useStateB("monthly");
   const [range, setRange] = useStateB(null);
+  const [, setBump] = useStateB(0);
   if (!b) return <div className="screen"><p>Unknown brand.</p></div>;
+
+  const srcCur = (window.__srcMap || {})[b.key] || "INR";
+  const setSrcCur = (code) => {
+    const ov = window.PStore.get("brandCurrency", {});
+    if (code === "INR") delete ov[b.key]; else ov[b.key] = code;
+    window.PStore.set("brandCurrency", ov); window.buildModel(); setBump(x => x + 1);
+  };
 
   const active = brandActiveMonths(b);
   const lo = range ? Math.min(range.lo, range.hi) : active[0];
@@ -180,6 +188,9 @@ function BrandDetail({ brandKey, navigate }) {
               <h1>{b.key}</h1><RegionTag r={b.region} />
               {b.leadGen && <Badge tone="accent">Lead-gen</Badge>}
               {!b.active && <Badge tone="neutral">No spend yet</Badge>}
+              <select className="cur-select src-sel" value={srcCur} onChange={e => setSrcCur(e.target.value)} title="Source currency of this brand's sheet data (converted to the base for totals)">
+                {Object.keys(window.CURRENCIES).map(c => <option key={c} value={c}>src: {c}</option>)}
+              </select>
             </div>
             <p className="sub">
               {b.tl.tlMeta && <span>Meta lead <b>{b.tl.tlMeta}</b></span>}

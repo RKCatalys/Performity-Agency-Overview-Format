@@ -560,7 +560,10 @@ function App({ onReset, fileInfo, onRefresh }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("performity.theme") || "light");
   const [cur, setCur] = useState(() => localStorage.getItem("performity.cur") || "INR");
   const [fx, setFx] = useState(() => loadFxCache());
+  const [, setRebuild] = useState(0);
   useEffect(() => { fetchFx().then(setFx); }, []);
+  // when live FX arrives, re-normalize brand currencies to the INR base and re-render
+  useEffect(() => { window.__fx = fx; if (window.AGENCY) { window.buildModel(); setRebuild(r => r + 1); } }, [fx]);
   useEffect(() => { document.body.setAttribute("data-theme", theme); localStorage.setItem("performity.theme", theme); }, [theme]);
   useEffect(() => { localStorage.setItem("performity.cur", cur); }, [cur]);
   // set the active display currency before any view renders (source data is INR)
@@ -650,10 +653,11 @@ const INFO_KEY = "performity.info.v1";
 
 function applyData(d) {
   window.AGENCY = d.AGENCY;
-  window.WEEKLY = d.WEEKLY || {};
+  window.WEEKLY_RAW = d.WEEKLY || {};
   window.WEEKLY_META = d.WEEKLY_META || {};
-  if (window.PerformityParser && PerformityParser.augmentWeekly) PerformityParser.augmentWeekly(window.WEEKLY);
-  window.buildModel();
+  if (window.PerformityParser && PerformityParser.augmentWeekly) PerformityParser.augmentWeekly(window.WEEKLY_RAW);
+  window.__fx = loadFxCache();
+  window.buildModel(); // normalizes WEEKLY_RAW -> window.WEEKLY in the chosen base
 }
 function persist(d, info) {
   try {

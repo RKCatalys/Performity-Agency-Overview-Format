@@ -11,11 +11,58 @@ window.buildModel = function () {
     return q;
   }
 
+  // ---- Currency normalization: some brands' sheet numbers are in local currency.
+  // Convert every monetary value to an INR base so the portfolio aggregates correctly;
+  // the display-currency selector then converts INR -> chosen currency. RAW data is
+  // kept (window.WEEKLY_RAW / window.AGENCY) so this is recomputed, never double-applied.
+  const DEFAULT_SRC = { "Verlas USA": "USD", "Insta Limb PH": "PHP", "Qatar Moms": "QAR" };
+  const srcMap = Object.assign({}, DEFAULT_SRC, (window.PStore && window.PStore.get("brandCurrency", {})) || {});
+  window.__srcMap = srcMap;
+  const rates = (window.__fx && window.__fx.rates) || null;
+  const factorFor = (name) => {
+    const src = srcMap[name] || "INR";
+    if (src === "INR" || !rates || !rates[src]) return 1;
+    return 1 / rates[src]; // INR per 1 unit of src
+  };
+  const isMoney = (nm) => /(spend|sales|revenue|aov|cac|cpl|cpm|cpc|cp )/i.test(nm) && !/(%|share|roas|cvr|ctr|contribution|return)/i.test(nm);
+  const scaleArr = (arr, f) => (arr || []).map(v => v == null ? v : v * f);
+  const scaleMetric = (m, f) => ({
+    months: m.months.map(mo => ({ weeks: mo.weeks.map(w => w == null ? w : w * f), mo: mo.mo == null ? mo.mo : mo.mo * f })),
+    quarters: (m.quarters || []).map(q => q == null ? q : q * f), year: m.year == null ? m.year : m.year * f,
+  });
+
+  // normalize the weekly grid from RAW into window.WEEKLY
+  const RAW = window.WEEKLY_RAW || window.WEEKLY || {};
+  const WN = {};
+  Object.keys(RAW).forEach(bk => {
+    const f = factorFor(bk), src = RAW[bk], out = {};
+    Object.keys(src).forEach(sec => {
+      const s = src[sec];
+      if (!s || !s.metrics) { out[sec] = s; return; }
+      const metrics = {};
+      s.order.forEach(nm => { const m = s.metrics[nm]; metrics[nm] = (f !== 1 && isMoney(nm)) ? scaleMetric(m, f) : m; });
+      out[sec] = { order: s.order.slice(), metrics };
+    });
+    WN[bk] = out;
+  });
+  window.WEEKLY = WN;
+
   const tlOv = (window.PStore && window.PStore.get("tlOverrides", {})) || {};
-  const brands = A.summary.map(s => {
-    const mom = A.mom[s.name.toUpperCase()] || {};
-    const ch = A.channels[s.name] || { meta: {}, google: {}, other: {}, shopify: {} };
-    const tl = { ...(A.tl[s.name] || {}), ...(tlOv[s.name] || {}) };
+  const brands = A.summary.map(s0 => {
+    const f = factorFor(s0.name);
+    const s = { ...s0 };
+    if (f !== 1) ["spend", "gstSpend", "grossSales", "dashRev", "aov", "cac"].forEach(k => { if (s[k] != null) s[k] = s[k] * f; });
+    const momRaw = A.mom[s0.name.toUpperCase()] || {};
+    const mom = {};
+    Object.keys(momRaw).forEach(k => { mom[k] = (f !== 1 && isMoney(k)) ? scaleArr(momRaw[k], f) : momRaw[k]; });
+    const chRaw = A.channels[s0.name] || { meta: {}, google: {}, other: {}, shopify: {} };
+    const ch = {};
+    ["meta", "google", "other", "shopify"].forEach(sec => {
+      const o = chRaw[sec] || {}, no = {};
+      Object.keys(o).forEach(k => { no[k] = (f !== 1 && isMoney(k) && o[k] != null) ? o[k] * f : o[k]; });
+      ch[sec] = no;
+    });
+    const tl = { ...(A.tl[s0.name] || {}), ...(tlOv[s0.name] || {}) };
     const spendSeries = mom["Ad Spend"] || [];
     const revSeries = mom["Dashboard Revenue"] || [];
     const roasSeries = mom["Dashboard ROAS"] || [];
@@ -196,8 +243,14 @@ window.buildModel = function () {
   const team = Object.values(teamMap).map(t => ({ ...t, brandCount: t.brands.size, brands: [...t.brands] }))
     .sort((a, b) => b.spend - a.spend);
 
-  // ---- Portfolio totals ----
-  const gt = A.grandTotal;
+  // ---- Portfolio totals (recomputed from normalized, INR-base brands) ----
+  const sum = k => brands.reduce((a, b) => a + (b[k] || 0), 0);
+  const tSpend = sum("spend"), tGst = sum("gstSpend"), tGross = sum("grossSales"), tRev = sum("dashRev"), tOrders = sum("orders");
+  const gt = {
+    spend: tSpend, gstSpend: tGst, grossSales: tGross, dashRev: tRev, orders: tOrders,
+    dashRoas: tSpend ? tRev / tSpend : null, grossRoas: tSpend ? tGross / tSpend : null,
+    gstRoas: tGst ? tGross / tGst : null, aov: tOrders ? tGross / tOrders : null, cac: tOrders ? tSpend / tOrders : null,
+  };
   const activeBrands = brands.filter(b => b.active);
 
   window.MODEL = { brands, byName, alerts, insights, team, grandTotal: gt, activeBrands, months: A.meta.months, playbook: A.playbook || [] };
