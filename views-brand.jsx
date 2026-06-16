@@ -26,11 +26,100 @@ function ChannelCard({ title, color, ch, share }) {
   );
 }
 
+// months (0..11) where the brand had spend or revenue
+function brandActiveMonths(b) {
+  const out = [];
+  for (let i = 0; i < 12; i++) if ((b.spendSeries[i] || 0) > 0 || (b.revSeries[i] || 0) > 0) out.push(i);
+  return out.length ? out : Array.from({ length: 12 }, (_, i) => i);
+}
+function sumRange(arr, lo, hi) {
+  let s = 0, any = false;
+  for (let i = lo; i <= hi; i++) { const v = arr && arr[i]; if (v != null) { s += v; any = true; } }
+  return any ? s : 0;
+}
+// recompute headline KPIs over a month range [lo,hi] from the monthly series
+function aggKPIs(b, lo, hi) {
+  const m = b.mom || {};
+  const spend = sumRange(m["Ad Spend"], lo, hi), gst = sumRange(m["GST Spend"], lo, hi),
+    rev = sumRange(m["Dashboard Revenue"], lo, hi), gross = sumRange(m["Shopify Gross Sales"], lo, hi),
+    orders = sumRange(m["Orders"], lo, hi);
+  let nrN = 0, nrD = 0; const nr = m["Net ROAS"] || [], gs = m["GST Spend"] || [];
+  for (let i = lo; i <= hi; i++) if (nr[i] != null && gs[i] != null) { nrN += nr[i] * gs[i]; nrD += gs[i]; }
+  return {
+    spend, gstSpend: gst, dashRev: rev, grossSales: gross, orders,
+    dashRoas: spend ? rev / spend : null, aov: orders ? gross / orders : null,
+    cac: orders ? spend / orders : null, netRoas: nrD ? nrN / nrD : null,
+  };
+}
+
+const CHART_METRICS = ["Ad Spend", "Dashboard Revenue", "Shopify Gross Sales", "Orders", "AOV", "CAC", "Dashboard ROAS", "GST ROAS", "Net ROAS"];
+function isRatioMetric(m) { return m.includes("ROAS"); }
+function isMoneyMetric(m) { return ["Ad Spend", "GST Spend", "Shopify Gross Sales", "Dashboard Revenue", "AOV", "CAC"].includes(m); }
+function chartFmt(m) { return isRatioMetric(m) ? (v => v == null ? "" : (+v).toFixed(1) + "×") : isMoneyMetric(m) ? (v => inr(v).replace("₹", "")) : (v => num(v)); }
+
+// Customizable performance chart: metric, chart type, and period-over-period compare.
+function BrandChart({ b, lo, hi, monthsLabels }) {
+  const [metric, setMetric] = useStateB("Ad Spend");
+  const [type, setType] = useStateB("combo"); // combo | bars | line
+  const [compare, setCompare] = useStateB(false);
+  const full = b.mom[metric] || [];
+  const series = full.slice(lo, hi + 1);
+  const roasLine = (b.mom["Dashboard ROAS"] || []).slice(lo, hi + 1);
+  const len = hi - lo + 1;
+  const prev = (lo - len >= 0) ? full.slice(lo - len, lo) : null;
+  const ratio = isRatioMetric(metric);
+  const effType = ratio && type === "combo" ? "line" : type;
+
+  let chart;
+  if (effType === "line") {
+    const ser = [{ data: series, color: "var(--accent)" }];
+    if (compare && prev) ser.unshift({ data: prev, color: "var(--muted)" });
+    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} />;
+  } else if (effType === "bars") {
+    chart = <ComboChart months={monthsLabels} bars={series} line={series.map(() => null)} />;
+  } else { // combo: metric bars + ROAS line
+    chart = <ComboChart months={monthsLabels} bars={series} line={roasLine} />;
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Performance</h3>
+        <div className="chart-tools">
+          <select className="cur-select" value={metric} onChange={e => setMetric(e.target.value)}>
+            {CHART_METRICS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <select className="cur-select" value={type} onChange={e => setType(e.target.value)}>
+            <option value="combo">Bars + ROAS</option>
+            <option value="bars">Bars</option>
+            <option value="line">Line</option>
+          </select>
+          {effType === "line" && prev && (
+            <button className={"tool-btn " + (compare ? "on" : "")} onClick={() => setCompare(c => !c)} title="Overlay the previous period of equal length">
+              <span className="td-ico">Δ</span>Compare
+            </button>
+          )}
+        </div>
+      </div>
+      {chart}
+      {compare && effType === "line" && prev && <div className="muted-sm" style={{ marginTop: 8 }}><span style={{ color: "var(--muted)" }}>──</span> previous period · <span style={{ color: "var(--accent)" }}>──</span> selected</div>}
+    </div>
+  );
+}
+
 function BrandDetail({ brandKey, navigate }) {
   const M = window.MODEL;
   const b = M.byName[brandKey];
   const [tab, setTab] = useStateB("monthly");
+  const [range, setRange] = useStateB(null);
   if (!b) return <div className="screen"><p>Unknown brand.</p></div>;
+
+  const active = brandActiveMonths(b);
+  const lo = range ? Math.min(range.lo, range.hi) : active[0];
+  const hi = range ? Math.max(range.lo, range.hi) : active[active.length - 1];
+  const k = aggKPIs(b, lo, hi);
+  const monthsLabels = MONTHS.slice(lo, hi + 1);
+  const rangeActive = range && (lo !== active[0] || hi !== active[active.length - 1]);
 
   const metaSpend = b.ch.meta?.Spend || 0;
   const googleSpend = b.ch.google?.Spend || 0;
@@ -80,23 +169,32 @@ function BrandDetail({ brandKey, navigate }) {
         </div>
       </div>
 
+      {active.length > 1 && (
+        <div className="brand-range">
+          <div className={"date-range " + (rangeActive ? "on" : "")} title="Filter KPIs and the chart by month range">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+            <select value={lo} onChange={e => setRange({ lo: +e.target.value, hi })}>{active.map(mi => <option key={mi} value={mi}>{MONTHS[mi]}</option>)}</select>
+            <span className="dr-dash">–</span>
+            <select value={hi} onChange={e => setRange({ lo, hi: +e.target.value })}>{active.map(mi => <option key={mi} value={mi}>{MONTHS[mi]}</option>)}</select>
+            {rangeActive && <button className="dr-clear" title="Clear" onClick={() => setRange(null)}>×</button>}
+          </div>
+          <span className="muted-sm">{rangeActive ? "Showing " + MONTHS[lo] + (lo !== hi ? "–" + MONTHS[hi] : "") : "Full year"}</span>
+        </div>
+      )}
+
       <div className="kpi-row six">
-        <KPI label="Ad Spend" value={inr(b.spend)} sub={"GST " + inr(b.gstSpend)} spark={b.spendSeries} />
-        <KPI label="Dash Revenue" value={inr(b.dashRev)} spark={b.revSeries} sparkColor="var(--good)" />
-        <KPI label="Dash ROAS" value={roas(b.dashRoas)} tone={roasHealth(b.dashRoas)} spark={b.roasSeries} sparkColor="var(--good)" />
-        <KPI label="Net ROAS" value={roas(b.netRoas)} sub="on GST spend" />
-        <KPI label="Orders" value={b.orders ? num(b.orders) : "—"} sub={b.aov ? "AOV " + inr(b.aov) : null} spark={b.ordersSeries} sparkColor="var(--violet)" />
-        <KPI label="CAC" value={b.cac ? inr(b.cac) : "—"} sub={ret != null ? "Return " + pct(ret, 0) : null} />
+        <KPI label="Ad Spend" value={inr(k.spend)} sub={"GST " + inr(k.gstSpend)} spark={b.spendSeries.slice(lo, hi + 1)} />
+        <KPI label="Dash Revenue" value={inr(k.dashRev)} spark={b.revSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
+        <KPI label="Dash ROAS" value={roas(k.dashRoas)} tone={roasHealth(k.dashRoas)} spark={b.roasSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
+        <KPI label="Net ROAS" value={roas(k.netRoas)} sub="on GST spend" />
+        <KPI label="Orders" value={k.orders ? num(k.orders) : "—"} sub={k.aov ? "AOV " + inr(k.aov) : null} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
+        <KPI label="CAC" value={k.cac ? inr(k.cac) : "—"} sub={ret != null ? "Return " + pct(ret, 0) : null} />
       </div>
 
       {b.active ? (
         <>
           <div className="grid-2">
-            <div className="card">
-              <div className="card-head"><h3>Spend &amp; ROAS by month</h3>
-                <div className="legend"><span className="lg bar" />Spend<span className="lg line" />ROAS</div></div>
-              <ComboChart months={MONTHS} bars={b.spendSeries} line={b.roasSeries} />
-            </div>
+            <BrandChart b={b} lo={lo} hi={hi} monthsLabels={monthsLabels} />
             <div className="card">
               <div className="card-head"><h3>Channel mix</h3><span className="muted-sm">by ad spend</span></div>
               {chTotal > 0 ? (
