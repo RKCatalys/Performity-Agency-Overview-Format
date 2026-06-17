@@ -487,6 +487,16 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
 .cm-del:hover{color:var(--bad);}
 .cm-body{font-size:13px; color:var(--text); line-height:1.4; white-space:pre-wrap;}
 
+/* ---- Forecast & plan ---- */
+.fc-brandbar{display:flex; align-items:center; gap:10px; margin-bottom:16px;}
+.fc-note{background:var(--accent-soft); border:1px solid transparent; border-radius:12px; padding:14px 16px; font-size:14px; line-height:1.55; color:var(--text); margin-bottom:16px;}
+.fc-note b{color:var(--accent-strong); font-weight:700;}
+.fc-sub{font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:10px;}
+.fc-form{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;}
+.fc-form label{display:flex; flex-direction:column; gap:5px; font-size:11.5px; font-weight:600; color:var(--text-2);}
+.fc-form input, .fc-form select{height:38px; border:1px solid var(--border-strong); border-radius:9px; padding:0 11px; font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); outline:none; min-width:180px;}
+.fc-form input:focus, .fc-form select:focus{border-color:var(--accent); background:var(--surface); box-shadow:0 0 0 3px var(--accent-soft);}
+
 /* ---- Upload screen ---- */
 .uploader{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; background:radial-gradient(1100px 560px at 50% -15%, #efeaff 0%, #e9f4fb 35%, var(--bg) 70%);}
 .up-card{width:100%; max-width:560px; background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-lg); padding:34px 34px 28px; text-align:center;}
@@ -545,6 +555,7 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
 <script type="text/babel" src="views-brand.jsx"></script>
 <script type="text/babel" src="views-scrum.jsx"></script>
 <script type="text/babel" src="views-more.jsx"></script>
+<script type="text/babel" src="views-forecast.jsx"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
@@ -552,6 +563,7 @@ const { useState, useEffect, useRef } = React;
 const NAV = [
   { id: "overview", label: "Overview", group: "Portfolio", icon: "M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 14h7v7H3z" },
   { id: "drr", label: "Daily run-rate", group: "Portfolio", icon: "M3 17l5-5 4 4 8-9M21 7h-4M21 7v4" },
+  { id: "forecast", label: "Forecast & plan", group: "Portfolio", icon: "M3 3v18h18M7 14l3-3 3 3 5-6M18 8h3M21 8v3" },
   { id: "alerts", label: "Alerts", group: "Monitoring", icon: "M12 3a6 6 0 00-6 6c0 5-2 6-2 6h16s-2-1-2-6a6 6 0 00-6-6zM10 20a2 2 0 004 0" },
   { id: "team", label: "Team", group: "People", icon: "M16 18v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 9a3 3 0 100-6 3 3 0 000 6zM21 18v-1a4 4 0 00-3-3.8M16 3.1A4 4 0 0117 11" },
   { id: "playbook", label: "Playbook", group: "Knowledge", icon: "M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2zM8 3v18M18 7h2M18 11h2" },
@@ -657,7 +669,7 @@ function App({ onReset, fileInfo, onRefresh }) {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
     const [screen, ...rest] = h.split("/");
     if (screen === "brand") return { screen: "brand", brand: rest.join("/") };
-    if (["overview", "drr", "alerts", "team", "playbook"].includes(screen)) return { screen };
+    if (["overview", "drr", "forecast", "alerts", "team", "playbook"].includes(screen)) return { screen };
     return { screen: "overview" };
   };
   const [route, setRoute] = useState(parseHash());
@@ -690,6 +702,7 @@ function App({ onReset, fileInfo, onRefresh }) {
   else if (route.screen === "alerts") view = <Alerts navigate={navigate} />;
   else if (route.screen === "team") view = <Team navigate={navigate} />;
   else if (route.screen === "playbook") view = <Playbook navigate={navigate} />;
+  else if (route.screen === "forecast") view = <Forecast navigate={navigate} />;
   else view = <Overview navigate={navigate} />;
 
   return (
