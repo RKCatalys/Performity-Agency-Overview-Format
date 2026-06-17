@@ -172,7 +172,52 @@ function ForecastMode({ b }) {
 }
 
 /* ---------------- Goal Planning Mode ---------------- */
-const GOAL_TYPES = { gross: "Gross Revenue", net: "Net / Dash Revenue", orders: "Order Volume", roas: "Blended ROAS" };
+// goal types: kind "outcome" (solve volume from a target) or "efficiency" (hold spend, solve the lift);
+// "spend" is forward planning (spend X -> outcomes). unit drives formatting.
+const GOAL_META = {
+  gross:        { label: "Gross Revenue target", unit: "money", kind: "outcome" },
+  net:          { label: "Net / Dash Revenue target", unit: "money", kind: "outcome" },
+  spend:        { label: "Ad Spend / budget (forward)", unit: "money", kind: "forward" },
+  orders:       { label: "Orders target", unit: "count", kind: "outcome" },
+  contribution: { label: "Contribution / Profit target", unit: "money", kind: "outcome" },
+  roas:         { label: "ROAS target", unit: "x", kind: "efficiency" },
+  netRoas:      { label: "Net ROAS target", unit: "x", kind: "efficiency" },
+  aov:          { label: "AOV target", unit: "money", kind: "efficiency" },
+  cac:          { label: "CAC target (max)", unit: "money", kind: "efficiency" },
+  cvr:          { label: "Conversion rate target", unit: "pct", kind: "efficiency" },
+};
+const fmtGoal = (unit, v) => v == null ? "-" : unit === "money" ? inr(v) : unit === "x" ? roas(v) : unit === "pct" ? pct(v, 2) : num(v);
+
+// Solve a full plan from a target on `type` (=value), holding other efficiencies at baseline.
+function buildPlan(a, base, type, value) {
+  const gRoas = base.grossRoas || a.proj.grossRoas || 1;
+  const nRoas = base.roas || a.proj.roas || 1;
+  const aov = base.aov || a.proj.aov || null;
+  const cac = base.cac || a.proj.cac || null;
+  const cvr = base.cvr || null;
+  const g2n = (a.proj.gross > 0) ? a.proj.rev / a.proj.gross : (gRoas ? nRoas / gRoas : 0.83); // net/gross
+  const baseClicks = (cvr && a.proj.orders) ? a.proj.orders / cvr : null;
+  let spend = a.proj.spend, gross = a.proj.gross, net = a.proj.rev, orders = a.proj.orders, outCvr = cvr;
+
+  if (type === "spend") { spend = value; gross = spend * gRoas; net = spend * nRoas; orders = aov ? gross / aov : (cac ? spend / cac : null); }
+  else if (type === "gross") { gross = value; spend = gross / gRoas; net = spend * nRoas; orders = aov ? gross / aov : null; }
+  else if (type === "net") { net = value; spend = net / nRoas; gross = spend * gRoas; orders = aov ? gross / aov : null; }
+  else if (type === "orders") { orders = value; spend = cac ? orders * cac : null; gross = aov ? orders * aov : null; net = spend != null ? spend * nRoas : null; }
+  else if (type === "contribution") { spend = nRoas > 1 ? value / (nRoas - 1) : null; net = spend != null ? spend * nRoas : null; gross = spend != null ? spend * gRoas : null; orders = aov && gross ? gross / aov : null; }
+  else if (type === "roas") { net = a.proj.spend * value; gross = g2n ? net / g2n : a.proj.spend * gRoas; spend = a.proj.spend; orders = aov ? gross / aov : null; }
+  else if (type === "netRoas") { net = a.proj.spend * value; gross = g2n ? net / g2n : a.proj.spend * gRoas; spend = a.proj.spend; orders = aov ? gross / aov : null; }
+  else if (type === "aov") { orders = a.proj.orders; gross = orders * value; spend = gRoas ? gross / gRoas : a.proj.spend; net = spend * nRoas; }
+  else if (type === "cac") { spend = a.proj.spend; orders = value ? spend / value : null; gross = aov && orders ? orders * aov : null; net = spend * nRoas; }
+  else if (type === "cvr") { outCvr = value; orders = baseClicks ? baseClicks * value : a.proj.orders; gross = aov ? orders * aov : null; spend = gRoas && gross ? gross / gRoas : a.proj.spend; net = spend * nRoas; }
+
+  return {
+    spend, gross, net, orders, outCvr,
+    roas: spend ? net / spend : null, grossRoas: spend ? gross / spend : null,
+    aov: orders ? gross / orders : null, cac: orders ? spend / orders : null,
+    cvr: (type === "cvr") ? value : cvr,
+    contribution: (net != null && spend != null) ? net - spend : null,
+  };
+}
 function ScenarioCard({ tag, tagCls, title, lines, outcome }) {
   return <div className="scn-card">
     {tag && <span className={"scn-tag " + (tagCls || "")}>{tag}</span>}
@@ -181,148 +226,113 @@ function ScenarioCard({ tag, tagCls, title, lines, outcome }) {
     {outcome && <div className="scn-outcome">{outcome}</div>}
   </div>;
 }
+function summaryFor(b, a, meta, type, tv, plan, fc, L) {
+  const grLift = l => l != null ? (l >= 0 ? "+" : "") + Math.round(l * 100) + "%" : "-";
+  const name = meta.label.replace(/ target.*| \(.*/, "").toLowerCase();
+  if (meta.kind === "forward") {
+    return <>If <b>{b.key}</b> spends <b>{inr(tv)}</b> net this month, expect about <b>{inr(plan.gross)}</b> gross / <b>{inr(plan.net)}</b> net revenue and <b>{num(plan.orders)}</b> orders at a blended ROAS of <b>{roas(plan.roas)}</b> (a daily run-rate of ~{inr(tv / a.totalDays)}/day).</>;
+  }
+  if (meta.kind === "efficiency") {
+    return <>Moving {name} from <b>{fmtGoal(meta.unit, fc)}</b> to <b>{fmtGoal(meta.unit, tv)}</b> ({grLift(fc ? tv / fc - 1 : null)}) at the forecast spend of <b>{inr(a.proj.spend)}</b> would take {b.key} to about <b>{inr(plan.net)}</b> net revenue with <b>{num(plan.orders)}</b> orders.</>;
+  }
+  const onTrack = L != null && L <= 1.001;
+  const baseGRoas = a.base.grossRoas || a.proj.grossRoas;
+  return <>To hit the <b>{fmtGoal(meta.unit, tv)}</b> {name} target, {onTrack
+    ? <>{b.key} is <b>already on track</b> — forecast is {fmtGoal(meta.unit, fc)}.</>
+    : <>required net spend is <b>{inr(plan.spend)}</b> ({grLift(a.proj.spend ? plan.spend / a.proj.spend - 1 : null)} vs forecast), generating <b>{num(plan.orders)}</b> orders at <b>{roas(plan.roas)}</b> ROAS. You can get there by raising spend {grLift(L - 1)}, improving ROAS to {roas(baseGRoas * L)}, or lifting AOV to {inr((a.base.aov || 0) * L)}.</>}</>;
+}
 function GoalMode({ b }) {
   const a = analyze(b);
   const [type, setType] = useStateF("gross");
   const [target, setTarget] = useStateF("");
-  const tv = parseFloat(String(target).replace(/[, ]/g, ""));
+  const meta = GOAL_META[type];
+  let tv = parseFloat(String(target).replace(/[, ]/g, ""));
+  if (meta.unit === "pct" && !isNaN(tv)) tv = tv / 100;
   const valid = !isNaN(tv) && tv > 0;
-
-  // baseline forecast for the metric being targeted
-  const fc = { gross: a.proj.gross, net: a.proj.rev, orders: a.proj.orders, roas: a.proj.roas };
-  const forecastVal = fc[type];
-  const L = (valid && forecastVal > 0) ? tv / forecastVal : null; // required multiplier
-
-  // required figures (for revenue targets)
-  let req = null;
-  if (valid && (type === "gross" || type === "net")) {
-    const baseRoas = type === "gross" ? a.base.grossRoas : a.base.roas;
-    req = {
-      spend: baseRoas ? tv / baseRoas : null,
-      orders: a.base.aov ? (type === "gross" ? tv / a.base.aov : tv / (a.proj.orders ? a.proj.rev / a.proj.orders : a.base.aov)) : null,
-      roasAtProj: a.proj.spend ? tv / a.proj.spend : null,
-    };
-    req.spendLift = (req.spend && a.proj.spend) ? req.spend / a.proj.spend - 1 : null;
-    req.cvr = (req.orders && b.ch.meta && b.ch.meta.Clicks) ? req.orders / b.ch.meta.Clicks : null;
-  }
-
-  // DRR required
-  const reqSpendTotal = req && req.spend ? req.spend : null;
-  const reqDRR = (reqSpendTotal && a.daysRemaining > 0) ? Math.max(0, (reqSpendTotal - a.mtd.spend) / a.daysRemaining) : null;
-  const drrGap = (reqDRR != null) ? reqDRR - a.drr : null;
+  const fc = { gross: a.proj.gross, net: a.proj.rev, spend: a.proj.spend, orders: a.proj.orders, contribution: a.proj.rev - a.proj.spend, roas: a.proj.roas, netRoas: b.netRoas, aov: a.proj.aov, cac: a.proj.cac, cvr: a.base.cvr }[type];
+  const plan = valid ? buildPlan(a, a.base, type, tv) : null;
+  const grLift = l => l != null ? (l >= 0 ? "+" : "") + Math.round(l * 100) + "%" : "-";
+  const reqDRR = plan && plan.spend != null && a.daysRemaining > 0 ? Math.max(0, (plan.spend - a.mtd.spend) / a.daysRemaining) : null;
+  const drrGap = reqDRR != null ? reqDRR - a.drr : null;
+  const L = (plan && a.proj.gross > 0) ? plan.gross / a.proj.gross : null;
+  const needMore = meta.kind === "outcome" && L != null && L > 1.001;
+  const baseGRoas = a.base.grossRoas || a.proj.grossRoas;
+  const hyb = L && L > 1 ? Math.pow(L, 1 / 3) - 1 : 0;
 
   return (
     <>
-      <div className="fc-headrow">
-        <div className="muted-sm">Goal planning = what must change to hit the target. Spend is net media spend (ex-GST).</div>
-      </div>
+      <div className="fc-headrow"><div className="muted-sm">Goal planning = what must change to hit the target. {meta.kind === "forward" ? "Forward planning: enter a budget to see the outcome." : "Reverse planning: enter a target to see what's required."} Spend is net media spend (ex-GST).</div></div>
       <div className="fc-form">
-        <label>Goal
-          <select value={type} onChange={e => setType(e.target.value)}>{Object.keys(GOAL_TYPES).map(k => <option key={k} value={k}>{GOAL_TYPES[k]}</option>)}</select>
+        <label>Planning goal type
+          <select value={type} onChange={e => { setType(e.target.value); setTarget(""); }}>{Object.keys(GOAL_META).map(k => <option key={k} value={k}>{GOAL_META[k].label}</option>)}</select>
         </label>
-        <label>Target ({type === "roas" ? "× ROAS" : type === "orders" ? "orders" : "₹"})
-          <input type="number" step="any" value={target} onChange={e => setTarget(e.target.value)} placeholder={type === "roas" ? "e.g. 3.5" : type === "orders" ? "e.g. 2000" : "e.g. 5000000"} />
+        <label>Target {meta.unit === "x" ? "(× ROAS)" : meta.unit === "pct" ? "(%)" : meta.unit === "count" ? "(orders)" : "(₹)"}
+          <input type="number" step="any" value={target} onChange={e => setTarget(e.target.value)} placeholder={meta.unit === "x" ? "e.g. 4" : meta.unit === "pct" ? "e.g. 2.4" : meta.unit === "count" ? "e.g. 2000" : "e.g. 5000000"} />
         </label>
-        <div className="fc-baseline muted-sm">Forecast {GOAL_TYPES[type].toLowerCase()}: <b>{type === "roas" ? roas(forecastVal) : type === "orders" ? num(forecastVal) : inr(forecastVal)}</b></div>
+        <div className="fc-baseline muted-sm">Forecast {meta.label.replace(/ target.*| \(.*/, "").toLowerCase()}: <b>{fmtGoal(meta.unit, fc)}</b></div>
       </div>
 
-      {!valid && <div className="empty">Enter a target to reverse-engineer the plan.</div>}
+      {!valid && <div className="empty">Enter a target to {meta.kind === "forward" ? "see the projected outcome" : "reverse-engineer the plan"}.</div>}
 
-      {valid && (type === "gross" || type === "net") && (() => {
-        const gap = tv - forecastVal;
-        const onTrack = gap <= 0;
-        const grLift = (l) => (l != null ? (l >= 0 ? "+" : "") + Math.round(l * 100) + "%" : "-");
-        const scnLift = L && L > 1 ? L - 1 : 0;
-        const hybM = L && L > 1 ? Math.pow(L, 1 / 3) - 1 : 0;
-        return (
-          <>
-            {/* AI summary */}
-            <div className="fc-note">
-              To hit the <b>{inr(tv)}</b> {GOAL_TYPES[type].toLowerCase()} target, {onTrack
-                ? <>the brand is <b>already on track</b> — forecast is {inr(forecastVal)} ({pct(forecastVal / tv, 0)} of target).</>
-                : <>an additional <b>{inr(gap)}</b> is required ({pct(forecastVal / tv, 0)} of target at current pace). This can be achieved by increasing daily spend by <b>{grLift(scnLift)}</b>, improving ROAS from <b>{roas(type === "gross" ? a.base.grossRoas : a.base.roas)}</b> to <b>{roas((type === "gross" ? a.base.grossRoas : a.base.roas) * L)}</b>, or lifting AOV from <b>{inr(a.base.aov)}</b> to <b>{inr(a.base.aov * L)}</b>.</>}
+      {valid && plan && (<>
+        <div className="fc-note">{summaryFor(b, a, meta, type, tv, plan, fc, L)}</div>
+
+        {needMore && (
+          <div className="card gap-card">
+            <div className="card-head"><h3>Gap analysis</h3></div>
+            <div className="gap-bar"><div className="gap-fill" style={{ width: pct(Math.min(1, fc / tv), 0) }}><span>Forecast {fmtGoal(meta.unit, fc)}</span></div><span className="gap-target">Target {fmtGoal(meta.unit, tv)}</span></div>
+            <div className="gap-grid">
+              <div><span className="gap-k">Gap</span><span className="gap-v bad">{fmtGoal(meta.unit, tv - fc)}</span></div>
+              <div><span className="gap-k">Spend gap</span><span className="gap-v">{inr((plan.spend || 0) - a.proj.spend)}</span></div>
+              <div><span className="gap-k">ROAS lift</span><span className="gap-v">{grLift(L - 1)}</span></div>
+              <div><span className="gap-k">AOV lift</span><span className="gap-v">{grLift(L - 1)}</span></div>
             </div>
+          </div>
+        )}
 
-            {/* Revenue gap analysis */}
-            {!onTrack && (
-              <div className="card gap-card">
-                <div className="card-head"><h3>Revenue gap analysis</h3></div>
-                <div className="gap-bar"><div className="gap-fill" style={{ width: pct(Math.min(1, forecastVal / tv), 0) }}><span>Forecast {inr(forecastVal)}</span></div><span className="gap-target">Target {inr(tv)}</span></div>
-                <div className="gap-grid">
-                  <div><span className="gap-k">Gap</span><span className="gap-v bad">{inr(gap)}</span></div>
-                  <div><span className="gap-k">Spend gap</span><span className="gap-v">{req && req.spend ? inr(req.spend - a.proj.spend) : "-"}</span></div>
-                  <div><span className="gap-k">ROAS gap</span><span className="gap-v">{req && req.roasAtProj ? grLift(req.roasAtProj / (type === "gross" ? a.base.grossRoas : a.base.roas) - 1) : "-"}</span></div>
-                  <div><span className="gap-k">AOV gap</span><span className="gap-v">{a.base.aov ? grLift(L - 1) : "-"}</span></div>
-                </div>
-              </div>
-            )}
+        <div className="fc-sub">{meta.kind === "forward" ? "Projected outcome" : "What it takes"}</div>
+        <div className="kpi-row seven">
+          <FCard label="Net Ad Spend" value={inr(plan.spend)} sub={a.proj.spend ? grLift(plan.spend / a.proj.spend - 1) + " vs forecast" : null} tone={plan.spend > a.proj.spend ? "warn" : "good"} />
+          <FCard label="Gross Revenue" value={inr(plan.gross)} />
+          <FCard label="Net Revenue" value={inr(plan.net)} />
+          <FCard label="Orders" value={plan.orders ? num(plan.orders) : "-"} />
+          <FCard label="ROAS" value={roas(plan.roas)} tone={roasHealth(plan.roas)} />
+          <FCard label="AOV" value={plan.aov ? inr(plan.aov) : "-"} />
+          <FCard label="CAC" value={plan.cac ? inr(plan.cac) : "-"} />
+        </div>
+        <div className="kpi-row" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))" }}>
+          <FCard label="Contribution" value={plan.contribution != null ? inr(plan.contribution) : "-"} sub="net rev − net spend" tone={plan.contribution >= 0 ? "good" : "bad"} />
+          <FCard label="Current DRR" value={inr(a.drr) + "/day"} sub={a.daysElapsed + "/" + a.totalDays + " days"} />
+          <FCard label="Required DRR" value={reqDRR != null ? inr(reqDRR) + "/day" : "-"} sub={a.daysRemaining + " days left"} tone="warn" />
+          <FCard label="DRR gap" value={drrGap != null ? (drrGap >= 0 ? "+" : "") + inr(drrGap) + "/day" : "-"} tone={drrGap > 0 ? "bad" : "good"} sub={drrGap != null && a.drr ? grLift(drrGap / a.drr) : null} />
+        </div>
 
-            {/* Required + DRR */}
-            <div className="fc-sub">What it takes</div>
-            <div className="kpi-row" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))" }}>
-              <FCard label="Required net spend" value={req && req.spend ? inr(req.spend) : "-"} sub={req && req.spendLift != null ? grLift(req.spendLift) + " vs forecast" : null} tone={req && req.spendLift > 0 ? "warn" : "good"} />
-              <FCard label="Required orders" value={req && req.orders ? num(req.orders) : "-"} sub={"at AOV " + inr(a.base.aov)} />
-              <FCard label="Required ROAS @ pace spend" value={req ? roas(req.roasAtProj) : "-"} sub={"vs " + roas(type === "gross" ? a.base.grossRoas : a.base.roas)} tone={roasHealth(req && req.roasAtProj)} />
-              <FCard label="Required CVR" value={req && req.cvr ? pct(req.cvr, 2) : "needs click data"} sub={a.base.cvr ? "from " + pct(a.base.cvr, 2) : null} />
-            </div>
-            <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-              <FCard label="Current DRR" value={inr(a.drr) + "/day"} sub={`${a.daysElapsed}/${a.totalDays} days`} />
-              <FCard label="Required DRR" value={reqDRR != null ? inr(reqDRR) + "/day" : "-"} sub={a.daysRemaining + " days left"} tone="warn" />
-              <FCard label="DRR gap" value={drrGap != null ? (drrGap >= 0 ? "+" : "") + inr(drrGap) + "/day" : "-"} sub={drrGap != null && a.drr ? grLift(drrGap / a.drr) : null} tone={drrGap > 0 ? "bad" : "good"} />
-            </div>
+        {needMore && (<>
+          <div className="fc-sub">Ways to get there</div>
+          <div className="scn-grid">
+            <ScenarioCard tag="Easiest to execute" tagCls="warn" title="A · Increase spend" lines={[`Raise net spend ${grLift(L - 1)} to ${inr(a.proj.spend * L)}`, `Hold ROAS at ${roas(baseGRoas)}`, `DRR rises to ~${inr(a.drr * L)}/day`]} outcome="Target met" />
+            <ScenarioCard tag="Lowest budget risk" tagCls="good" title="B · Improve ROAS" lines={[`Hold spend at ${inr(a.proj.spend)}`, `Lift ROAS ${grLift(L - 1)} → ${roas(baseGRoas * L)}`, `Tighten targeting, creative & LP CVR`]} outcome="Target met" />
+            <ScenarioCard title="C · Improve AOV" lines={[`Hold orders at ${num(a.proj.orders)}`, `Lift AOV ${grLift(L - 1)} → ${inr((a.base.aov || 0) * L)}`, `Bundles, upsells, free-ship thresholds`]} outcome="Target met" />
+            <ScenarioCard tag="Most realistic" tagCls="accent" title="D · Hybrid (balanced)" lines={[`Spend +${Math.round(hyb * 100)}% → ${inr(a.proj.spend * (1 + hyb))}`, `ROAS +${Math.round(hyb * 100)}% → ${roas(baseGRoas * (1 + hyb))}`, `AOV +${Math.round(hyb * 100)}% → ${inr((a.base.aov || 0) * (1 + hyb))}`]} outcome="Spreads the risk" />
+          </div>
+          <div className="card"><div className="card-head"><h3>Recommended action plan</h3></div>
+            <ol className="action-plan">
+              <li>Scale {best(a).label} budget toward {inr((reqDRR || a.drr) * (best(a).pct || 0.6))}/day (its share of the new pace).</li>
+              <li>Shift ~10% of budget toward the highest-ROAS channel ({best(a).label}, {roas(best(a).roas)}).</li>
+              <li>Improve landing-page &amp; checkout conversion rate.</li>
+              <li>Lift AOV via bundles/upsells toward {inr((a.base.aov || 0) * Math.pow(L, 1 / 3))}.</li>
+              <li>Target ROAS improvement from {roas(baseGRoas)} to {roas(baseGRoas * Math.pow(L, 1 / 2))}.</li>
+            </ol>
+            <div className="ap-outcome">Expected outcome · {fmtGoal(meta.unit, tv)} {meta.label.split(" ")[0]} · spend ~{inr(plan.spend)} · orders ~{num(plan.orders)}</div>
+          </div>
+        </>)}
 
-            {/* Scenarios */}
-            {!onTrack && (
-              <>
-                <div className="fc-sub">Ways to get there</div>
-                <div className="scn-grid">
-                  <ScenarioCard tag="Easiest to execute" tagCls="warn" title="A · Increase spend"
-                    lines={[`Raise net spend ${grLift(scnLift)} to ${inr(a.proj.spend * L)}`, `Hold ROAS at ${roas(type === "gross" ? a.base.grossRoas : a.base.roas)}`, `DRR rises to ~${inr(a.drr * L)}/day`]}
-                    outcome={`Revenue → ${inr(tv)}`} />
-                  <ScenarioCard tag="Lowest budget risk" tagCls="good" title="B · Improve ROAS"
-                    lines={[`Hold spend at ${inr(a.proj.spend)}`, `Lift ROAS ${grLift(scnLift)} → ${roas((type === "gross" ? a.base.grossRoas : a.base.roas) * L)}`, `Tighten targeting, creative & landing-page CVR`]}
-                    outcome={`Revenue → ${inr(tv)}`} />
-                  <ScenarioCard title="C · Improve AOV"
-                    lines={[`Hold orders at ${num(a.proj.orders)}`, `Lift AOV ${grLift(scnLift)} → ${inr(a.base.aov * L)}`, `Bundles, upsells, free-ship thresholds`]}
-                    outcome={`Revenue → ${inr(tv)}`} />
-                  <ScenarioCard tag="Most realistic" tagCls="accent" title="D · Hybrid (balanced)"
-                    lines={[`Spend +${Math.round(hybM * 100)}% → ${inr(a.proj.spend * (1 + hybM))}`, `ROAS +${Math.round(hybM * 100)}% → ${roas((type === "gross" ? a.base.grossRoas : a.base.roas) * (1 + hybM))}`, `AOV +${Math.round(hybM * 100)}% → ${inr(a.base.aov * (1 + hybM))}`]}
-                    outcome={`Revenue → ${inr(tv)} · spreads the risk`} />
-                </div>
-
-                {/* Action plan */}
-                <div className="card">
-                  <div className="card-head"><h3>Recommended action plan</h3></div>
-                  <ol className="action-plan">
-                    <li>Increase {best(a).label} daily budget toward {inr((reqDRR || a.drr) * (best(a).pct || 0.6))}/day (its share of the new pace).</li>
-                    <li>Shift ~10% budget toward the highest-ROAS channel ({best(a).label}, {roas(best(a).roas)}).</li>
-                    <li>Lift conversion rate {req && req.cvr && a.base.cvr ? `from ${pct(a.base.cvr, 2)} to ${pct(req.cvr, 2)}` : "via landing-page & checkout tests"}.</li>
-                    <li>Increase AOV from {inr(a.base.aov)} to {inr(a.base.aov * Math.pow(L, 1 / 3))} through bundles/upsells.</li>
-                    <li>Target ROAS improvement from {roas(type === "gross" ? a.base.grossRoas : a.base.roas)} to {roas((type === "gross" ? a.base.grossRoas : a.base.roas) * Math.pow(L, 1 / 2))}.</li>
-                  </ol>
-                  <div className="ap-outcome">Expected outcome · Revenue {inr(tv)} · ROAS ~{roas((type === "gross" ? a.base.grossRoas : a.base.roas) * Math.pow(L, 1 / 2))} · Orders ~{num(req && req.orders ? req.orders : a.proj.orders * L)}</div>
-                </div>
-              </>
-            )}
-          </>
-        );
-      })()}
-
-      {valid && type === "orders" && (() => {
-        const reqSpend = a.base.cac ? tv * a.base.cac : null, reqGross = a.base.aov ? tv * a.base.aov : null;
-        const lift = (reqSpend && a.proj.spend) ? reqSpend / a.proj.spend - 1 : null;
-        return <><div className="fc-note">To reach <b>{num(tv)}</b> orders, expected net spend is <b>{inr(reqSpend)}</b> {lift != null && <>({lift >= 0 ? "+" : ""}{Math.round(lift * 100)}% vs forecast)</>}, generating ~<b>{inr(reqGross)}</b> gross at the current AOV.</div>
-          <div className="kpi-row" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-            <FCard label="Required net spend" value={inr(reqSpend)} sub={lift != null ? (lift >= 0 ? "+" : "") + Math.round(lift * 100) + "% vs forecast" : null} />
-            <FCard label="Projected gross" value={inr(reqGross)} />
-            <FCard label="Required DRR" value={reqSpend && a.daysRemaining ? inr(Math.max(0, (reqSpend - a.mtd.spend) / a.daysRemaining)) + "/day" : "-"} sub={"vs " + inr(a.drr) + "/day now"} tone="warn" />
-          </div></>;
-      })()}
-
-      {valid && type === "roas" && (() => {
-        const revAt = a.proj.spend ? a.proj.spend * tv : null, lift = a.base.roas ? tv / a.base.roas - 1 : null;
-        return <div className="fc-note">Improving blended ROAS from <b>{roas(a.base.roas)}</b> to <b>{roas(tv)}</b> ({lift != null ? (lift >= 0 ? "+" : "") + Math.round(lift * 100) + "%" : ""}) would lift revenue to <b>{inr(revAt)}</b> at the forecast spend of {inr(a.proj.spend)}{a.base.cvr ? <>, implying CVR rises from {pct(a.base.cvr, 2)} to ~{pct(a.base.cvr * tv / a.base.roas, 2)}</> : ""}.</div>;
-      })()}
+        {meta.kind === "efficiency" && (
+          <div className="card"><div className="card-head"><h3>What this change unlocks</h3></div>
+            <p className="muted-sm" style={{ padding: "2px 2px 0" }}>Holding net spend at {inr(a.proj.spend)}, moving {meta.label.replace(/ target.*| \(.*/, "").toLowerCase()} from <b>{fmtGoal(meta.unit, fc)}</b> to <b>{fmtGoal(meta.unit, tv)}</b> ({grLift(fc ? tv / fc - 1 : null)}) implies the metrics above. Drive it through targeting, creative, landing-page CVR and AOV levers rather than more budget.</p>
+          </div>
+        )}
+      </>)}
     </>
   );
 }
