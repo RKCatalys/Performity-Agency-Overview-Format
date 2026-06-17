@@ -112,9 +112,10 @@ body[data-theme="dark"] .catalys-wm{filter:invert(1) brightness(1.6);}
 .seg.on{background:var(--accent); color:#fff;}
 
 /* ---- KPI ---- */
-.kpi-row{display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:18px;}
-.kpi-row.six{grid-template-columns:repeat(6,1fr);}
-.kpi-row.seven{grid-template-columns:repeat(7,1fr);}
+.kpi-row{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:18px;}
+.kpi-row.six{grid-template-columns:repeat(6,minmax(0,1fr));}
+.kpi-row.seven{grid-template-columns:repeat(7,minmax(0,1fr));}
+.kpi{min-width:0;}
 .ov-status{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; color:var(--text-2);}
 .ov-status .ov-sep{color:var(--muted);}
 .ov-status .ov-date{color:var(--text);}
@@ -219,6 +220,9 @@ body[data-theme="dark"] .catalys-wm{filter:invert(1) brightness(1.6);}
 .chan-dot{width:9px; height:9px; border-radius:50%;} .chan-title{font-weight:600; font-size:13px;}
 .chan-share{margin-left:auto; font-size:11px; color:var(--muted);}
 .chan-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px 12px;}
+.chan-legend{display:flex; flex-wrap:wrap; gap:7px 12px; margin-top:11px; font-size:11px; color:var(--text-2);}
+.chan-legend span{display:inline-flex; align-items:center; gap:5px;}
+.chan-legend i{width:9px; height:9px; border-radius:3px; display:inline-block;}
 .chan-cell{display:flex; flex-direction:column;} .chan-cell .cl{font-size:10.5px; color:var(--muted);} .chan-cell .cv{font-size:13px; font-weight:600;}
 .empty{color:var(--muted); font-size:13px; padding:30px 0; text-align:center;}
 
@@ -279,6 +283,35 @@ body[data-theme="dark"] .catalys-wm{filter:invert(1) brightness(1.6);}
 .insight-pill.bad .ip-delta{color:var(--bad);} .insight-pill.warn .ip-delta{color:var(--warn);} .insight-pill.good .ip-delta{color:var(--good);}
 .ip-msg{font-size:12px; color:var(--text-2); line-height:1.35;}
 .ip-act{font-size:11.5px; color:var(--accent-strong); line-height:1.35;}
+/* grouped-by-brand insight pills (Overview) */
+.insight-pill.brand-grp{gap:8px;}
+.ig-counts{display:flex; flex-wrap:wrap; gap:5px; margin-left:auto;}
+.igc{font-size:10px; font-weight:700; padding:1px 6px; border-radius:5px; white-space:nowrap;}
+.igc.bad{background:var(--bad-soft); color:var(--bad);} .igc.warn{background:var(--warn-soft); color:var(--warn);}
+.igc.good{background:var(--good-soft); color:var(--good);} .igc.review{background:#e3f3f5; color:var(--review);} .igc.neutral{background:var(--surface-2); color:var(--text-2);}
+.ig-items{display:flex; flex-direction:column; gap:5px;}
+.ig-line{display:flex; align-items:baseline; gap:6px; font-size:11.5px; color:var(--text-2); line-height:1.3;}
+.ig-line b{color:var(--text); font-weight:600; flex:none;}
+.ig-dot{width:7px; height:7px; border-radius:50%; flex:none; transform:translateY(1px);}
+.ig-dot.bad{background:var(--bad);} .ig-dot.warn{background:var(--warn);} .ig-dot.good{background:var(--good);} .ig-dot.review{background:var(--review);} .ig-dot.neutral{background:var(--border-strong);}
+.ig-msg{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ig-more{font-size:11px; color:var(--muted); font-weight:600;}
+/* grouped-by-brand alert cards (Alerts screen) */
+.alert-groups{display:flex; flex-direction:column; gap:14px;}
+.alert-group{padding:0; overflow:hidden; border-left:3px solid var(--border-strong);}
+.alert-group.bad{border-left-color:var(--bad);} .alert-group.warn{border-left-color:var(--warn);} .alert-group.good{border-left-color:var(--good);} .alert-group.review{border-left-color:var(--review);} .alert-group.neutral{border-left-color:var(--border-strong);}
+.ag-head{display:flex; align-items:center; gap:10px; padding:13px 16px; cursor:pointer; border-bottom:1px solid var(--border);}
+.ag-head:hover{background:var(--surface-2);}
+.ag-brand{font-size:15px; font-weight:700;}
+.ag-open{margin-left:auto; font-size:12px; font-weight:600; color:var(--accent);}
+.ag-items{display:flex; flex-direction:column;}
+.ag-item{display:flex; gap:11px; padding:11px 16px; border-bottom:1px solid var(--border);}
+.ag-item:last-child{border-bottom:none;}
+.ag-dot{width:8px; height:8px; border-radius:50%; flex:none; margin-top:5px; background:var(--border-strong);}
+.ag-item.bad .ag-dot{background:var(--bad);} .ag-item.warn .ag-dot{background:var(--warn);} .ag-item.good .ag-dot{background:var(--good);} .ag-item.review .ag-dot{background:var(--review);} .ag-item.neutral .ag-dot{background:var(--border-strong);}
+.ag-body{flex:1; min-width:0;}
+.ag-row1{display:flex; align-items:center; gap:9px; margin-bottom:3px;}
+.ag-metric{margin-left:auto; font-weight:700; font-size:13px;}
 .alert-action{font-size:12.5px; color:var(--text-2); margin-top:5px;}
 .alert-action .aa-k{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--accent-strong); background:var(--accent-soft); padding:1px 6px; border-radius:5px; margin-right:7px;}
 .alert-body{flex:1; min-width:0;}
@@ -504,6 +537,8 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
 .up-logo-icon{width:60px; height:60px; border-radius:15px; box-shadow:0 8px 22px rgba(108,71,255,.28);}
 .up-card h1{font-size:22px; margin-bottom:6px;}
 .up-card .up-sub{color:var(--text-2); font-size:14px; margin-bottom:24px; line-height:1.5;}
+.up-kicker{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--accent); margin-bottom:8px;}
+.sf-rk{font-size:10px; color:var(--muted); opacity:.75; letter-spacing:.02em;}
 .dropzone{border:2px dashed var(--border-strong); border-radius:14px; padding:38px 24px; cursor:pointer; transition:.15s; background:var(--surface-2);}
 .dropzone:hover,.dropzone.drag{border-color:var(--accent); background:var(--accent-soft);}
 .dz-ico{width:46px; height:46px; margin:0 auto 12px; color:var(--accent);}
@@ -605,7 +640,7 @@ function Sidebar({ route, navigate, alertCount, open, onClose }) {
       </nav>
       <div className="sidebar-foot">
         <div className="user-av">RS</div>
-        <div className="sf-meta">Performance workspace<br /><span className="sf-by">by</span> <img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /></div>
+        <div className="sf-meta">Performance workspace<br /><span className="sf-by">by</span> <img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /><br /><span className="sf-rk">Designed by RK</span></div>
       </div>
     </aside>
     </>
@@ -887,6 +922,7 @@ function UploadScreen({ onLoaded, initialUrl, initialError }) {
         <div className="up-brand">
           <img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" />
         </div>
+        <div className="up-kicker">Welcome to the future of Agency Management</div>
         <h1>Upload your Agency Overview</h1>
         <p className="up-sub">Drop in your <b>Catalys Agency Overview</b> Excel workbook (.xlsx) and Performity builds your live portfolio dashboard · brands, channels, weekly scrum, alerts and team rollups.</p>
 
@@ -934,7 +970,9 @@ function Loading({ label }) {
     <div className="uploader">
       <div className="up-card" style={{ textAlign: "center", paddingTop: 44, paddingBottom: 44 }}>
         <div className="up-brand"><img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" /></div>
+        <h1 style={{ fontSize: 20, marginBottom: 6 }}>Welcome to the future of Agency Management</h1>
         <div className="up-busy"><span className="spin" /> {label}</div>
+        <div className="up-catalys" style={{ marginTop: 18 }}><span>A</span><img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /><span>product · designed by RK</span></div>
       </div>
     </div>
   );

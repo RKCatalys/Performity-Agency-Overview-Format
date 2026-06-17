@@ -164,7 +164,7 @@
     const grossRoas = gross != null ? (spend ? gross / spend : null) : (spend ? 0 : null);
     return {
       name, spend: spend || 0, gstSpend: get(r, 2) || 0,
-      grossSales: gross || 0, dashRev: get(r, 5) || 0,
+      grossSales: gross || 0, netSales: get(r, 4), dashRev: get(r, 5) || 0,
       dashRoas: get(r, 6), grossRoas,
       gstRoas: get(r, 8), netRoas: get(r, 9),
       orders: get(r, 10) || 0, aov: get(r, 11), cac: get(r, 12)

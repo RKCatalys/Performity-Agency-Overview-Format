@@ -2,23 +2,26 @@
 const { useState: useStateV, useMemo: useMemoV } = React;
 
 function portfolioMonthly(brands) {
-  const spend = Array(12).fill(0), rev = Array(12).fill(0), orders = Array(12).fill(0), gross = Array(12).fill(0), gst = Array(12).fill(0);
+  const spend = Array(12).fill(0), rev = Array(12).fill(0), orders = Array(12).fill(0), gross = Array(12).fill(0), gst = Array(12).fill(0), net = Array(12).fill(0);
   brands.forEach(b => {
     const gs = (b.mom && b.mom["Shopify Gross Sales"]) || [];
     const gp = (b.mom && b.mom["GST Spend"]) || [];
+    const ns = b.netSeries || [];
     for (let i = 0; i < 12; i++) {
       spend[i] += b.spendSeries[i] || 0;
       rev[i] += b.revSeries[i] || 0;
       orders[i] += b.ordersSeries[i] || 0;
       gross[i] += gs[i] || 0;
       gst[i] += gp[i] || 0;
+      net[i] += ns[i] || 0;
     }
   });
   const roas = spend.map((s, i) => s > 0 ? rev[i] / s : null);
   const grossRoas = spend.map((s, i) => s > 0 ? gross[i] / s : null);
   const aov = orders.map((o, i) => o > 0 ? gross[i] / o : null);
   const cac = orders.map((o, i) => o > 0 ? spend[i] / o : null);
-  return { spend, rev, orders, gross, gst, roas, grossRoas, aov, cac };
+  const returnRate = gross.map((g, i) => g > 0 && net[i] > 0 ? (g - net[i]) / g : null);
+  return { spend, rev, orders, gross, gst, net, roas, grossRoas, aov, cac, returnRate };
 }
 
 function KPI({ label, value, sub, spark, sparkColor, tone }) {
@@ -50,13 +53,14 @@ function portfolioMetrics(gt, pm, returnRate) {
     spend:     { label: "Ad Spend", value: inr(gt.spend), sub: "GST " + inr(gt.gstSpend), series: pm.spend, color: "var(--accent)" },
     gross:     { label: "Gross Sales", value: inr(gt.grossSales), sub: "Shopify gross", series: pm.gross, color: "var(--accent)" },
     revenue:   { label: "Dash / Net Revenue", value: inr(gt.dashRev), sub: "tracked attributed", series: pm.rev, color: "var(--good)" },
+    net:       { label: "Net Sales", value: inr(pm.net.reduce((a, x) => a + x, 0)), sub: "after returns", series: pm.net, color: "var(--good)" },
     roas:      { label: "Blended ROAS", value: roas(gt.dashRoas), sub: "Dash Rev / Spend", series: pm.roas, color: "var(--good)", tone: roasHealth(gt.dashRoas) },
     grossRoas: { label: "Gross ROAS", value: roas(gt.grossRoas), sub: "Gross / Spend", series: pm.grossRoas, color: "var(--good)" },
     gstRoas:   { label: "GST ROAS", value: roas(gt.gstRoas), sub: "Gross / GST spend" },
     orders:    { label: "Orders", value: num(gt.orders), sub: "AOV " + inr(gt.aov), series: pm.orders, color: "var(--violet)" },
     aov:       { label: "AOV", value: gt.aov ? inr(gt.aov) : "-", sub: "blended", series: pm.aov, color: "var(--violet)" },
     cac:       { label: "Blended CAC", value: inr(gt.cac), sub: "cost / acquisition", series: pm.cac },
-    returnRate:{ label: "Return Rate", value: returnRate != null ? pct(returnRate, 1) : "-", sub: "gross-weighted" },
+    returnRate:{ label: "Return Rate", value: returnRate != null ? pct(returnRate, 1) : "-", sub: "gross-weighted", series: pm.returnRate, color: "var(--violet)" },
     gstSpend:  { label: "GST Spend", value: inr(gt.gstSpend), sub: "incl. GST", series: pm.gst, color: "var(--accent)" },
   };
 }
@@ -82,17 +86,18 @@ function OvCard({ mkey, metrics, onPick }) {
 function PortfolioChart({ pm }) {
   const [metric, setMetric] = useStateV("spend");
   const [type, setType] = useStateV("combo");
-  const opts = { spend: "Ad Spend", gross: "Gross Sales", revenue: "Dash Revenue", orders: "Orders", aov: "AOV", cac: "CAC", roas: "Blended ROAS", grossRoas: "Gross ROAS" };
-  const ser = { spend: pm.spend, gross: pm.gross, revenue: pm.rev, orders: pm.orders, aov: pm.aov, cac: pm.cac, roas: pm.roas, grossRoas: pm.grossRoas }[metric];
+  const opts = { spend: "Ad Spend", gross: "Gross Sales", revenue: "Dash Revenue", net: "Net Sales", orders: "Orders", aov: "AOV", cac: "CAC", roas: "Blended ROAS", grossRoas: "Gross ROAS", returnRate: "Return Rate" };
+  const ser = { spend: pm.spend, gross: pm.gross, revenue: pm.rev, net: pm.net, orders: pm.orders, aov: pm.aov, cac: pm.cac, roas: pm.roas, grossRoas: pm.grossRoas, returnRate: pm.returnRate }[metric];
   const ratio = metric === "roas" || metric === "grossRoas";
-  const money = ["spend", "gross", "revenue", "aov", "cac"].includes(metric);
-  const fmt = ratio ? (v => v == null ? "" : (+v).toFixed(1) + "×") : money ? (v => inr(v).replace("₹", "")) : (v => num(v));
+  const isPct = metric === "returnRate";
+  const money = ["spend", "gross", "revenue", "net", "aov", "cac"].includes(metric);
+  const fmt = ratio ? (v => v == null ? "" : (+v).toFixed(1) + "×") : isPct ? (v => v == null ? "" : (v * 100).toFixed(0) + "%") : money ? (v => inr(v).replace("₹", "")) : (v => num(v));
   const barFmt = money ? (v => inr(v)) : ratio ? (v => roas(v)) : (v => num(v));
   const tip = MONTHS.map((mo, i) => `${mo}\nSpend ${inr(pm.spend[i])}   Gross ${inr(pm.gross[i])}\nRevenue ${inr(pm.rev[i])}   ROAS ${pm.roas[i] != null ? pm.roas[i].toFixed(2) + "×" : "-"}\nOrders ${num(pm.orders[i])}   AOV ${pm.aov[i] != null ? inr(pm.aov[i]) : "-"}   CAC ${pm.cac[i] != null ? inr(pm.cac[i]) : "-"}`);
-  const effType = ratio && type === "combo" ? "line" : type;
+  const effType = (ratio || isPct) && type === "combo" ? "line" : type;
   let chart;
-  if (["line", "spline", "step", "area"].includes(effType))
-    chart = <LineMulti months={MONTHS} series={[{ data: ser, color: ratio ? "var(--good)" : "var(--accent)" }]} fmt={fmt} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} tip={tip} />;
+  if (["line", "spline", "step", "area", "trend"].includes(effType))
+    chart = <LineMulti months={MONTHS} series={[{ data: ser, color: ratio ? "var(--good)" : "var(--accent)" }]} fmt={fmt} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} trend={effType === "trend"} tip={tip} />;
   else if (effType === "hbar")
     chart = <HBars items={MONTHS.map((mo, i) => ({ label: mo, value: ser[i] || 0 })).filter(it => it.value)} fmt={barFmt} />;
   else if (effType === "bars")
@@ -107,7 +112,7 @@ function PortfolioChart({ pm }) {
           <select className="cur-select" value={metric} onChange={e => setMetric(e.target.value)}>{Object.keys(opts).map(k => <option key={k} value={k}>{opts[k]}</option>)}</select>
           <select className="cur-select" value={type} onChange={e => setType(e.target.value)}>
             <option value="combo">Bars + ROAS</option><option value="bars">Bars</option><option value="hbar">Horizontal bars</option>
-            <option value="line">Line</option><option value="spline">Spline</option><option value="step">Step</option><option value="area">Area</option>
+            <option value="line">Line</option><option value="spline">Spline</option><option value="step">Step</option><option value="area">Area</option><option value="trend">Line + trendline</option>
           </select>
         </div>
       </div>
@@ -180,18 +185,29 @@ function Overview({ navigate }) {
         {cards.map((k, i) => <OvCard key={i} mkey={k} metrics={allMetrics} onPick={(nk) => pickCard(i, nk)} />)}
       </div>
 
-      {M.insights && M.insights.length > 0 && (
+      {M.insightsByBrand && M.insightsByBrand.length > 0 && (
         <div className="card insights-card">
           <div className="card-head">
             <h3>Needs attention &amp; opportunities</h3>
-            <button className="link-arrow" onClick={() => navigate("alerts")} style={{ background: "none", padding: 0 }}>View all {M.insights.length} →</button>
+            <button className="link-arrow" onClick={() => navigate("alerts")} style={{ background: "none", padding: 0 }}>View all {M.insightsByBrand.length} brands →</button>
           </div>
           <div className="insight-strip">
-            {M.insights.slice(0, 4).map((x, i) => (
-              <button key={i} className={"insight-pill " + (x.good ? "good" : x.sev === "critical" ? "bad" : "warn")} onClick={() => navigate("brand", x.brandKey)}>
-                <div className="ip-top"><span className="ip-brand">{x.brand}</span><span className="ip-delta mono">{x.metricStr}</span></div>
-                <div className="ip-msg">{x.msg}</div>
-                {x.action && <div className="ip-act">{x.action}</div>}
+            {M.insightsByBrand.slice(0, 4).map((g, i) => (
+              <button key={i} className={"insight-pill brand-grp " + sevCls(g.items[0].sev)} onClick={() => navigate("brand", g.brandKey)}>
+                <div className="ip-top">
+                  <span className="ip-brand">{g.brand}</span>
+                  <span className="ig-counts">
+                    {g.counts.critical ? <span className="igc bad">{g.counts.critical} critical</span> : null}
+                    {g.counts.warn ? <span className="igc warn">{g.counts.warn} warning</span> : null}
+                    {g.counts.opportunity ? <span className="igc good">{g.counts.opportunity} opp</span> : null}
+                  </span>
+                </div>
+                <div className="ig-items">
+                  {g.items.slice(0, 3).map((x, j) => (
+                    <div key={j} className="ig-line"><span className={"ig-dot " + sevCls(x.sev)} /><b>{x.metric}</b> <span className="ig-msg">{x.msg}</span></div>
+                  ))}
+                  {g.items.length > 3 && <div className="ig-more">+{g.items.length - 3} more</div>}
+                </div>
               </button>
             ))}
           </div>

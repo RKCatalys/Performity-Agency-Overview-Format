@@ -171,24 +171,47 @@ function Alerts({ navigate }) {
         {!rules.length && !form && <div className="muted-sm">No custom alerts yet. Create rules like “ROAS below 1.5 for all brands” · matches show in the list below.</div>}
       </div>
 
-      <div className="alert-list">
-        {list.map((a, i) => (
-          <div className={"alert-item " + SEV[a.sev].c} key={i} onClick={() => navigate("brand", a.brand)}>
-            <span className="alert-bar" />
-            <div className="alert-body">
-              <div className="alert-row1">
-                <span className="alert-type">{a.type}</span>
-                <span className="alert-brand">{a.brand}</span>
-                {a.since && <span className="alert-since">{a.since}</span>}
+      {(() => {
+        const byBrand = {};
+        list.forEach(a => { (byBrand[a.brand] = byBrand[a.brand] || []).push(a); });
+        const groups = Object.keys(byBrand).map(brand => {
+          const items = byBrand[brand].slice().sort((x, y) => rank[x.sev] - rank[y.sev]);
+          const counts = {}; items.forEach(it => counts[it.sev] = (counts[it.sev] || 0) + 1);
+          return { brand, items, counts, worst: Math.min.apply(null, items.map(it => rank[it.sev])) };
+        }).sort((a, b) => (a.worst - b.worst) || (b.items.length - a.items.length));
+        if (!groups.length) return <div className="empty">No signals in this category.</div>;
+        return (
+          <div className="alert-groups">
+            {groups.map((g, gi) => (
+              <div className={"card alert-group " + window.sevCls(g.items[0].sev)} key={gi}>
+                <div className="ag-head" onClick={() => navigate("brand", g.brand)}>
+                  <span className="ag-brand">{g.brand}</span>
+                  <span className="ig-counts">
+                    {g.counts.critical ? <span className="igc bad">{g.counts.critical} critical</span> : null}
+                    {g.counts.warn ? <span className="igc warn">{g.counts.warn} warning</span> : null}
+                    {g.counts.opportunity ? <span className="igc good">{g.counts.opportunity} opportunity</span> : null}
+                    {g.counts.review ? <span className="igc review">{g.counts.review} review</span> : null}
+                    {g.counts.info ? <span className="igc neutral">{g.counts.info} info</span> : null}
+                  </span>
+                  <span className="ag-open">Open →</span>
+                </div>
+                <div className="ag-items">
+                  {g.items.map((a, i) => (
+                    <div className={"ag-item " + window.sevCls(a.sev)} key={i}>
+                      <span className="ag-dot" />
+                      <div className="ag-body">
+                        <div className="ag-row1"><span className="alert-type">{a.type}</span>{a.since && <span className="alert-since">{a.since}</span>}<span className="ag-metric mono">{a.metric}</span></div>
+                        <div className="alert-msg">{a.msg}</div>
+                        {a.action && <div className="alert-action"><span className="aa-k">Recommended</span> {a.action}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="alert-msg">{a.msg}</div>
-              {a.action && <div className="alert-action"><span className="aa-k">Recommended</span> {a.action}</div>}
-            </div>
-            <div className="alert-metric mono">{a.metric}</div>
+            ))}
           </div>
-        ))}
-        {!list.length && <div className="empty">No signals in this category.</div>}
-      </div>
+        );
+      })()}
     </div>
   );
 }

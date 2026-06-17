@@ -15,7 +15,7 @@ window.buildModel = function () {
   // Convert every monetary value to an INR base so the portfolio aggregates correctly;
   // the display-currency selector then converts INR -> chosen currency. RAW data is
   // kept (window.WEEKLY_RAW / window.AGENCY) so this is recomputed, never double-applied.
-  const DEFAULT_SRC = { "Verlas USA": "USD", "Insta Limb PH": "PHP", "Qatar Moms": "QAR" };
+  const DEFAULT_SRC = { "Verlas USA": "USD", "Insta Limb PH": "PHP", "Insta Limb India": "JPY", "Qatar Moms": "QAR" };
   const srcMap = Object.assign({}, DEFAULT_SRC, (window.PStore && window.PStore.get("brandCurrency", {})) || {});
   window.__srcMap = srcMap;
   const rates = (window.__fx && window.__fx.rates) || null;
@@ -51,7 +51,7 @@ window.buildModel = function () {
   const brands = A.summary.map(s0 => {
     const f = factorFor(s0.name);
     const s = { ...s0 };
-    if (f !== 1) ["spend", "gstSpend", "grossSales", "dashRev", "aov", "cac"].forEach(k => { if (s[k] != null) s[k] = s[k] * f; });
+    if (f !== 1) ["spend", "gstSpend", "grossSales", "dashRev", "netSales", "aov", "cac"].forEach(k => { if (s[k] != null) s[k] = s[k] * f; });
     const momRaw = A.mom[s0.name.toUpperCase()] || {};
     const mom = {};
     Object.keys(momRaw).forEach(k => { mom[k] = (f !== 1 && isMoney(k)) ? scaleArr(momRaw[k], f) : momRaw[k]; });
@@ -67,6 +67,11 @@ window.buildModel = function () {
     const revSeries = mom["Dashboard Revenue"] || [];
     const roasSeries = mom["Dashboard ROAS"] || [];
     const ordersSeries = mom["Orders"] || [];
+    const grossSeries = mom["Shopify Gross Sales"] || [];
+    // monthly Net Sales from the (normalized) weekly overall section, + derived return rate
+    const ovNet = WN[s0.name] && WN[s0.name].overall && WN[s0.name].overall.metrics["Shopify Net Sales"];
+    const netSeries = Array.from({ length: 12 }, (_, i) => ovNet && ovNet.months[i] ? ovNet.months[i].mo : null);
+    const returnSeries = grossSeries.map((g, i) => (g > 0 && netSeries[i] != null) ? (g - netSeries[i]) / g : null);
     // last active month index (has spend or rev)
     let lastActive = -1, prevActive = -1;
     for (let i = 0; i < 12; i++) {
@@ -80,7 +85,7 @@ window.buildModel = function () {
       active,
       leadGen: !!(A.leadGen && A.leadGen[s.name]),
       mom, ch, tl,
-      spendSeries, revSeries, roasSeries, ordersSeries,
+      spendSeries, revSeries, roasSeries, ordersSeries, grossSeries, netSeries, returnSeries,
       lastActive, prevActive,
       qSpend: quarters(spendSeries),
       qRev: quarters(revSeries),
@@ -226,6 +231,14 @@ window.buildModel = function () {
   });
   const insSev = { critical: 0, warn: 1, opportunity: 2, review: 3, info: 4 };
   insights.sort((a, b) => (insSev[a.sev] - insSev[b.sev]) || (Math.abs(b.pct || 0) - Math.abs(a.pct || 0)));
+  // group insights by brand so each brand surfaces as one card with its issues
+  const ibMap = {};
+  insights.forEach(x => { (ibMap[x.brand] = ibMap[x.brand] || []).push(x); });
+  const insightsByBrand = Object.keys(ibMap).map(brand => {
+    const items = ibMap[brand].slice().sort((a, b) => insSev[a.sev] - insSev[b.sev]);
+    const counts = {}; items.forEach(i => counts[i.sev] = (counts[i.sev] || 0) + 1);
+    return { brand, brandKey: items[0].brandKey, items, counts, worst: Math.min.apply(null, items.map(i => insSev[i.sev])) };
+  }).sort((a, b) => (a.worst - b.worst) || (b.items.length - a.items.length));
 
   // ---- Team rollup ----
   const teamMap = {};
@@ -253,6 +266,6 @@ window.buildModel = function () {
   };
   const activeBrands = brands.filter(b => b.active);
 
-  window.MODEL = { brands, byName, alerts, insights, team, grandTotal: gt, activeBrands, months: A.meta.months, playbook: A.playbook || [] };
+  window.MODEL = { brands, byName, alerts, insights, insightsByBrand, team, grandTotal: gt, activeBrands, months: A.meta.months, playbook: A.playbook || [] };
   return window.MODEL;
 };

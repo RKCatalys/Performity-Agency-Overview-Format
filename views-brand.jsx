@@ -1,7 +1,7 @@
 /* views-brand.jsx · single brand deep-dive */
 const { useState: useStateB } = React;
 
-function ChannelCard({ title, color, ch, share }) {
+function ChannelCard({ title, color, ch, share, revShare }) {
   if (!ch || Object.keys(ch).length === 0) return null;
   const get = (k) => ch[k];
   const rows = [
@@ -17,7 +17,7 @@ function ChannelCard({ title, color, ch, share }) {
       <div className="chan-head">
         <span className="chan-dot" style={{ background: color }} />
         <span className="chan-title">{title}</span>
-        {share != null && <span className="chan-share">{pct(share, 0)} of spend</span>}
+        {share != null && <span className="chan-share">{pct(share, 0)} spend{revShare != null ? " · " + pct(revShare, 0) + " rev" : ""}</span>}
       </div>
       <div className="chan-grid">
         {rows.map(([l, v]) => <div className="chan-cell" key={l}><span className="cl">{l}</span><span className="cv mono">{v}</span></div>)}
@@ -42,13 +42,33 @@ function aggKPIs(b, lo, hi) {
   const m = b.mom || {};
   const spend = sumRange(m["Ad Spend"], lo, hi), gst = sumRange(m["GST Spend"], lo, hi),
     rev = sumRange(m["Dashboard Revenue"], lo, hi), gross = sumRange(m["Shopify Gross Sales"], lo, hi),
-    orders = sumRange(m["Orders"], lo, hi);
+    orders = sumRange(m["Orders"], lo, hi), net = sumRange(b.netSeries, lo, hi);
   let nrN = 0, nrD = 0; const nr = m["Net ROAS"] || [], gs = m["GST Spend"] || [];
   for (let i = lo; i <= hi; i++) if (nr[i] != null && gs[i] != null) { nrN += nr[i] * gs[i]; nrD += gs[i]; }
   return {
-    spend, gstSpend: gst, dashRev: rev, grossSales: gross, orders,
+    spend, gstSpend: gst, dashRev: rev, grossSales: gross, orders, netSales: net,
     dashRoas: spend ? rev / spend : null, aov: orders ? gross / orders : null,
     cac: orders ? spend / orders : null, netRoas: nrD ? nrN / nrD : null,
+    returnRate: gross > 0 && net > 0 ? (gross - net) / gross : null,
+  };
+}
+
+// metric catalog for the brand's customizable KPI cards
+function brandMetrics(b, k, lo, hi) {
+  const sl = arr => (arr || []).slice(lo, hi + 1);
+  const leads = b.leadGen;
+  return {
+    spend:    { label: "Ad Spend", value: inr(k.spend), sub: "GST " + inr(k.gstSpend), series: sl(b.spendSeries), color: "var(--accent)" },
+    gstSpend: { label: "GST Spend", value: inr(k.gstSpend), series: sl(b.mom["GST Spend"]), color: "var(--accent)" },
+    gross:    { label: "Gross Sales", value: inr(k.grossSales), series: sl(b.grossSeries), color: "var(--accent)" },
+    dashRev:  { label: "Dash / Net Revenue", value: inr(k.dashRev), sub: "tracked attributed", series: sl(b.revSeries), color: "var(--good)" },
+    netSales: { label: "Net Sales", value: k.netSales ? inr(k.netSales) : "-", sub: "after returns", series: sl(b.netSeries), color: "var(--good)" },
+    dashRoas: { label: "Dash ROAS", value: roas(k.dashRoas), sub: "Dash Rev / Spend", tone: roasHealth(k.dashRoas), series: sl(b.roasSeries), color: "var(--good)" },
+    netRoas:  { label: "Net ROAS", value: roas(k.netRoas), sub: "on GST spend" },
+    orders:   { label: leads ? "Leads" : "Orders", value: k.orders ? num(k.orders) : "-", sub: leads ? "lead volume" : (k.aov ? "AOV " + inr(k.aov) : null), series: sl(b.ordersSeries), color: "var(--violet)" },
+    aov:      { label: "AOV", value: k.aov ? inr(k.aov) : "-", sub: "per order", series: sl(b.mom["AOV"]), color: "var(--violet)" },
+    cac:      { label: leads ? "CPL" : "CAC", value: k.cac ? inr(k.cac) : "-", sub: leads ? "cost / lead" : "cost / acquisition", series: sl(b.mom["CAC"]), color: "var(--accent)" },
+    returnRate:{ label: "Return Rate", value: k.returnRate != null ? pct(k.returnRate, 1) : "-", sub: "of gross", series: sl(b.returnSeries) },
   };
 }
 
@@ -67,33 +87,35 @@ function rangeChAgg(key, sec, lo, hi) {
   };
 }
 
-const CHART_METRICS = ["Ad Spend", "Dashboard Revenue", "Shopify Gross Sales", "GST Spend", "Orders", "AOV", "CAC", "Dashboard ROAS", "GST ROAS", "Net ROAS"];
+const CHART_METRICS = ["Ad Spend", "Dashboard Revenue", "Shopify Gross Sales", "Net Sales", "GST Spend", "Orders", "AOV", "CAC", "Dashboard ROAS", "GST ROAS", "Net ROAS", "Return Rate"];
 function isRatioMetric(m) { return m.includes("ROAS"); }
-function isMoneyMetric(m) { return ["Ad Spend", "GST Spend", "Shopify Gross Sales", "Dashboard Revenue", "AOV", "CAC"].includes(m); }
-function chartFmt(m) { return isRatioMetric(m) ? (v => v == null ? "" : (+v).toFixed(1) + "×") : isMoneyMetric(m) ? (v => inr(v).replace("₹", "")) : (v => num(v)); }
+function isPctMetric(m) { return m === "Return Rate"; }
+function isMoneyMetric(m) { return ["Ad Spend", "GST Spend", "Shopify Gross Sales", "Dashboard Revenue", "Net Sales", "AOV", "CAC"].includes(m); }
+function brandSeries(b, m) { return m === "Net Sales" ? (b.netSeries || []) : m === "Return Rate" ? (b.returnSeries || []) : (b.mom[m] || []); }
+function chartFmt(m) { return isRatioMetric(m) ? (v => v == null ? "" : (+v).toFixed(1) + "×") : isPctMetric(m) ? (v => v == null ? "" : (v * 100).toFixed(0) + "%") : isMoneyMetric(m) ? (v => inr(v).replace("₹", "")) : (v => num(v)); }
 
 // Customizable performance chart: metric, chart type, and period-over-period compare.
 function BrandChart({ b, lo, hi, monthsLabels }) {
   const [metric, setMetric] = useStateB("Ad Spend");
   const [type, setType] = useStateB("combo"); // combo | bars | line
   const [compare, setCompare] = useStateB(false);
-  const full = b.mom[metric] || [];
+  const full = brandSeries(b, metric);
   const series = full.slice(lo, hi + 1);
   const roasLine = (b.mom["Dashboard ROAS"] || []).slice(lo, hi + 1);
   const len = hi - lo + 1;
   const prev = (lo - len >= 0) ? full.slice(lo - len, lo) : null;
-  const ratio = isRatioMetric(metric);
+  const ratio = isRatioMetric(metric) || isPctMetric(metric);
   const effType = ratio && type === "combo" ? "line" : type;
 
-  const barFmt = isMoneyMetric(metric) ? (v => inr(v)) : (v => num(v));
+  const barFmt = isMoneyMetric(metric) ? (v => inr(v)) : isPctMetric(metric) ? (v => (v * 100).toFixed(0) + "%") : (v => num(v));
   // rich tooltip per month in range, pulling all key metrics
   const mm = (k, wi) => { const a = b.mom[k] || []; return a[lo + wi]; };
   const tip = monthsLabels.map((mo, wi) => `${mo}\nSpend ${inr(mm("Ad Spend", wi))}   Gross ${inr(mm("Shopify Gross Sales", wi))}\nRevenue ${inr(mm("Dashboard Revenue", wi))}   ROAS ${mm("Dashboard ROAS", wi) != null ? mm("Dashboard ROAS", wi).toFixed(2) + "×" : "-"}\n${b.leadGen ? "Leads" : "Orders"} ${num(mm("Orders", wi))}   AOV ${mm("AOV", wi) != null ? inr(mm("AOV", wi)) : "-"}   ${b.leadGen ? "CPL" : "CAC"} ${mm("CAC", wi) != null ? inr(mm("CAC", wi)) : "-"}`);
   let chart;
-  if (["line", "spline", "step", "area"].includes(effType)) {
+  if (["line", "spline", "step", "area", "trend"].includes(effType)) {
     const ser = [{ data: series, color: "var(--accent)" }];
     if (compare && prev) ser.unshift({ data: prev, color: "var(--muted)" });
-    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} tip={compare ? null : tip} />;
+    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} trend={effType === "trend"} tip={compare ? null : tip} />;
   } else if (effType === "hbar") {
     chart = <HBars items={monthsLabels.map((mo, wi) => ({ label: mo, value: series[wi] || 0 })).filter(it => it.value)} fmt={barFmt} />;
   } else if (effType === "bars") {
@@ -118,6 +140,7 @@ function BrandChart({ b, lo, hi, monthsLabels }) {
             <option value="spline">Spline</option>
             <option value="step">Step</option>
             <option value="area">Area</option>
+            <option value="trend">Line + trendline</option>
           </select>
           {effType === "line" && prev && (
             <button className={"tool-btn " + (compare ? "on" : "")} onClick={() => setCompare(c => !c)} title="Overlay the previous period of equal length">
@@ -138,6 +161,7 @@ function BrandDetail({ brandKey, navigate }) {
   const [tab, setTab] = useStateB("monthly");
   const [range, setRange] = useStateB(null);
   const [, setBump] = useStateB(0);
+  const [bcards, setBcards] = useStateB(() => window.PStore.get("brandCards", ["spend", "dashRev", "dashRoas", "netRoas", "orders", "aov", "cac"]));
   if (!b) return <div className="screen"><p>Unknown brand.</p></div>;
 
   const srcCur = (window.__srcMap || {})[b.key] || "INR";
@@ -151,6 +175,7 @@ function BrandDetail({ brandKey, navigate }) {
   const lo = range ? Math.min(range.lo, range.hi) : active[0];
   const hi = range ? Math.max(range.lo, range.hi) : active[active.length - 1];
   const k = aggKPIs(b, lo, hi);
+  const bMetrics = brandMetrics(b, k, lo, hi);
   const monthsLabels = MONTHS.slice(lo, hi + 1);
   const rangeActive = range && (lo !== active[0] || hi !== active[active.length - 1]);
 
@@ -180,10 +205,11 @@ function BrandDetail({ brandKey, navigate }) {
   const fmtCell = (m, v) => v == null ? "–" : isRoas(m) ? roas(v) : isMoney(m) ? inr(v) : num(v);
 
   const QHEAD = ["Q1","Q2","Q3","Q4"];
-  const qData = {
-    "Ad Spend": b.qSpend, "Dashboard Revenue": b.qRev, "Orders": b.qOrders,
-    "ROAS": b.qSpend.map((s, i) => s > 0 ? b.qRev[i] / s : null),
-  };
+  const qtr = arr => { const q = [0, 0, 0, 0]; (arr || []).forEach((v, i) => { if (v != null) q[Math.floor(i / 3)] += v; }); return q; };
+  const qRoas = b.qSpend.map((s, i) => s > 0 ? b.qRev[i] / s : null);
+  const qGross = qtr(b.grossSeries), qNet = qtr(b.netSeries);
+  const qReturn = qGross.map((g, i) => g > 0 && qNet[i] > 0 ? (g - qNet[i]) / g : null);
+  const yearReturn = (b.grossSales > 0 && b.netSales) ? (b.grossSales - b.netSales) / b.grossSales : (b.ch.shopify && b.ch.shopify["Return %"]) || null;
 
   return (
     <div className="screen">
@@ -223,13 +249,8 @@ function BrandDetail({ brandKey, navigate }) {
         </div>
       )}
 
-      <div className="kpi-row six">
-        <KPI label="Ad Spend" value={inr(k.spend)} sub={"GST " + inr(k.gstSpend)} spark={b.spendSeries.slice(lo, hi + 1)} />
-        <KPI label="Dash Revenue" value={inr(k.dashRev)} spark={b.revSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
-        <KPI label="Dash ROAS" value={roas(k.dashRoas)} tone={roasHealth(k.dashRoas)} spark={b.roasSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
-        <KPI label="Net ROAS" value={roas(k.netRoas)} sub="on GST spend" />
-        <KPI label={b.leadGen ? "Leads" : "Orders"} value={k.orders ? num(k.orders) : "–"} sub={b.leadGen ? "lead volume" : (k.aov ? "AOV " + inr(k.aov) : null)} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
-        <KPI label={b.leadGen ? "CPL" : "CAC"} value={k.cac ? inr(k.cac) : "–"} sub={b.leadGen ? "cost / lead" : (ret != null ? "Return " + pct(ret, 0) : null)} />
+      <div className="kpi-row seven">
+        {bcards.map((kk, i) => <OvCard key={i} mkey={kk} metrics={bMetrics} onPick={(nk) => { const nx = bcards.slice(); nx[i] = nk; setBcards(nx); window.PStore.set("brandCards", nx); }} />)}
       </div>
 
       {b.active ? (
@@ -237,22 +258,32 @@ function BrandDetail({ brandKey, navigate }) {
           <div className="grid-2">
             <BrandChart b={b} lo={lo} hi={hi} monthsLabels={monthsLabels} />
             <div className="card">
-              <div className="card-head"><h3>Channel mix</h3><span className="muted-sm">by ad spend</span></div>
-              {chTotal > 0 ? (
+              <div className="card-head"><h3>Channel mix</h3><span className="muted-sm">spend share %</span></div>
+              {chTotal > 0 ? (() => {
+                const revTot = (rMeta.Revenue || 0) + (rGoogle.Revenue || 0) + (rOther.Revenue || 0);
+                return (
                 <div className="chan-split">
-                  <Donut size={128} stroke={22}
-                    segments={[
-                      { value: metaSpend, color: "var(--accent)" },
-                      { value: googleSpend, color: "var(--violet)" },
-                      { value: otherSpend, color: "var(--border-strong)" },
-                    ]}
-                    center={<><div className="donut-c-v">{inr(chTotal)}</div><div className="donut-c-l">total</div></>} />
+                  <div>
+                    <Donut size={128} stroke={22}
+                      segments={[
+                        { value: metaSpend, color: "var(--accent)" },
+                        { value: googleSpend, color: "var(--violet)" },
+                        { value: otherSpend, color: "var(--border-strong)" },
+                      ]}
+                      center={<><div className="donut-c-v">{pct(metaSpend / chTotal, 0)}</div><div className="donut-c-l">Meta</div></>} />
+                    <div className="chan-legend">
+                      <span><i style={{ background: "var(--accent)" }} />Meta {pct(metaSpend / chTotal, 0)}</span>
+                      <span><i style={{ background: "var(--violet)" }} />Google {pct(googleSpend / chTotal, 0)}</span>
+                      {otherSpend > 0 && <span><i style={{ background: "var(--border-strong)" }} />Other {pct(otherSpend / chTotal, 0)}</span>}
+                    </div>
+                  </div>
                   <div className="chan-cards">
-                    <ChannelCard title="Meta" color="var(--accent)" ch={rMeta} share={metaSpend / chTotal} />
-                    <ChannelCard title="Google" color="var(--violet)" ch={rGoogle} share={googleSpend / chTotal} />
+                    <ChannelCard title="Meta" color="var(--accent)" ch={rMeta} share={metaSpend / chTotal} revShare={revTot ? (rMeta.Revenue || 0) / revTot : null} />
+                    <ChannelCard title="Google" color="var(--violet)" ch={rGoogle} share={googleSpend / chTotal} revShare={revTot ? (rGoogle.Revenue || 0) / revTot : null} />
                   </div>
                 </div>
-              ) : <div className="empty">No channel-level data logged.</div>}
+                );
+              })() : <div className="empty">No channel-level data logged.</div>}
             </div>
           </div>
 
@@ -268,10 +299,15 @@ function BrandDetail({ brandKey, navigate }) {
               <table className="data-table compact">
                 <thead><tr><th>Metric</th>{QHEAD.map(q => <th className="n" key={q}>{q}</th>)}<th className="n">Year</th></tr></thead>
                 <tbody>
-                  {[["Ad Spend", "Ad Spend", inr], ["Dashboard Revenue", "Dashboard Revenue", inr], ["ROAS", "ROAS", roas], ["Orders", "Orders", num]].map(([label, key, f]) => {
-                    const arr = qData[key]; const year = key === "ROAS" ? b.dashRoas : (key === "Ad Spend" ? b.spend : key === "Dashboard Revenue" ? b.dashRev : b.orders);
-                    return <tr key={label}><td>{label}</td>{arr.map((v, i) => <td className="n mono" key={i}>{v ? f(v) : "–"}</td>)}<td className="n mono strong">{year ? f(year) : "–"}</td></tr>;
-                  })}
+                  {[
+                    ["Ad Spend", b.qSpend, inr, b.spend],
+                    ["Dashboard Revenue", b.qRev, inr, b.dashRev],
+                    ["ROAS", qRoas, roas, b.dashRoas],
+                    [b.leadGen ? "Leads" : "Orders", b.qOrders, num, b.orders],
+                    ["Return Rate", qReturn, v => pct(v, 1), yearReturn],
+                  ].map(([label, arr, f, year]) => (
+                    <tr key={label}><td>{label}</td>{arr.map((v, i) => <td className="n mono" key={i}>{v != null && v !== 0 ? f(v) : "–"}</td>)}<td className="n mono strong">{year != null && year !== 0 ? f(year) : "–"}</td></tr>
+                  ))}
                 </tbody>
               </table>
             </div>

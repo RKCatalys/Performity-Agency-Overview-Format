@@ -18,12 +18,15 @@ const CURRENCIES = {
   QAR: { symbol: "QAR ", style: "intl", name: "Qatari Riyal" },
   SAR: { symbol: "SAR ", style: "intl", name: "Saudi Riyal" },
   PHP: { symbol: "₱", style: "intl", name: "Philippine Peso" },
+  JPY: { symbol: "¥", style: "intl", name: "Japanese Yen" },
   GBP: { symbol: "£", style: "intl", name: "British Pound" },
   EUR: { symbol: "€", style: "intl", name: "Euro" },
   AUD: { symbol: "A$", style: "intl", name: "Australian Dollar" },
   CAD: { symbol: "C$", style: "intl", name: "Canadian Dollar" },
 };
 function curState() { return window.CURRENCY || { code: "INR", symbol: "₹", style: "in", rate: 1 }; }
+// severity -> css tone class
+function sevCls(s) { return s === "critical" ? "bad" : s === "opportunity" ? "good" : s === "warn" ? "warn" : s === "info" ? "neutral" : "review"; }
 // Set the active display currency from a fetched FX table (rates keyed per 1 INR).
 function applyCurrency(code, fx) {
   const meta = CURRENCIES[code] || CURRENCIES.INR;
@@ -112,7 +115,7 @@ function Sparkline({ data, w = 96, h = 28, color = "var(--accent)", fill = true 
 }
 
 // grouped bar + line combo: monthly spend bars + ROAS line
-function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel, barFmt, tip }) {
+function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel, barFmt, tip, showPct = true }) {
   const bf = barFmt || (v => inr(v));
   const tipAt = (i) => tip && tip[i] ? tip[i] : (months[i] + " · " + bf(bars[i]) + (line[i] != null ? " · ROAS " + line[i].toFixed(2) + "×" : ""));
   const padL = 56, padR = 48, padT = 16, padB = 28;
@@ -149,6 +152,11 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel,
           <rect x={x(i) - slot / 2} y={padT} width={slot} height={ih} fill="transparent">
             <title>{tipAt(i)}</title>
           </rect>
+          {showPct && i > 0 && barVals[i - 1] > 0 && barVals[i] > 0 && (() => {
+            const ch = (barVals[i] - barVals[i - 1]) / barVals[i - 1];
+            if (Math.abs(ch) < 0.005) return null;
+            return <text x={x(i)} y={yBar(barVals[i]) - 5} textAnchor="middle" style={{ fontSize: 9, fontWeight: 700, fill: ch >= 0 ? "var(--good)" : "var(--bad)" }}>{(ch >= 0 ? "+" : "") + Math.round(ch * 100) + "%"}</text>;
+          })()}
           <text x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>
         </g>
       ))}
@@ -160,7 +168,7 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel,
   );
 }
 
-function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false, mode = "linear", tip }) {
+function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false, mode = "linear", tip, trend = false }) {
   const padL = 56, padR = 16, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
   const all = series.flatMap(s => s.data.filter(v => v != null));
@@ -212,6 +220,17 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = fals
           {s.data.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="2.6" fill={s.color}><title>{tip && tip[i] ? tip[i] : (months[i] + " · " + fmt(v))}</title></circle>)}
         </g>;
       })}
+      {trend && (() => {
+        // least-squares regression line over the last series
+        const d = series[series.length - 1].data;
+        const pts = d.map((v, i) => v == null ? null : [i, v]).filter(Boolean);
+        if (pts.length < 2) return null;
+        const n = pts.length, sx = pts.reduce((a, p) => a + p[0], 0), sy = pts.reduce((a, p) => a + p[1], 0);
+        const sxx = pts.reduce((a, p) => a + p[0] * p[0], 0), sxy = pts.reduce((a, p) => a + p[0] * p[1], 0);
+        const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx || 1), intc = (sy - slope * sx) / n;
+        const i0 = pts[0][0], i1 = pts[pts.length - 1][0];
+        return <path d={`M ${x(i0)} ${y(slope * i0 + intc)} L ${x(i1)} ${y(slope * i1 + intc)}`} fill="none" stroke="var(--violet)" strokeWidth="1.8" strokeDasharray="5 4" opacity="0.8" />;
+      })()}
     </svg>
   );
 }
@@ -353,5 +372,5 @@ function useColResize() {
 
 Object.assign(window, { metricFmt, isHeadline,
   inr, inrFull, num, roas, pct, delta, MONTHS, roasHealth,
-  CURRENCIES, curState, applyCurrency, useColResize,
+  CURRENCIES, curState, applyCurrency, useColResize, sevCls,
   Sparkline, ComboChart, LineMulti, HBars, Funnel, Donut, Delta, Badge, Avatar });
