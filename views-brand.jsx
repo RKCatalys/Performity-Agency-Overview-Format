@@ -1,4 +1,4 @@
-/* views-brand.jsx — single brand deep-dive */
+/* views-brand.jsx · single brand deep-dive */
 const { useState: useStateB } = React;
 
 function ChannelCard({ title, color, ch, share }) {
@@ -86,15 +86,20 @@ function BrandChart({ b, lo, hi, monthsLabels }) {
   const effType = ratio && type === "combo" ? "line" : type;
 
   const barFmt = isMoneyMetric(metric) ? (v => inr(v)) : (v => num(v));
+  // rich tooltip per month in range, pulling all key metrics
+  const mm = (k, wi) => { const a = b.mom[k] || []; return a[lo + wi]; };
+  const tip = monthsLabels.map((mo, wi) => `${mo}\nSpend ${inr(mm("Ad Spend", wi))}   Gross ${inr(mm("Shopify Gross Sales", wi))}\nRevenue ${inr(mm("Dashboard Revenue", wi))}   ROAS ${mm("Dashboard ROAS", wi) != null ? mm("Dashboard ROAS", wi).toFixed(2) + "×" : "-"}\n${b.leadGen ? "Leads" : "Orders"} ${num(mm("Orders", wi))}   AOV ${mm("AOV", wi) != null ? inr(mm("AOV", wi)) : "-"}   ${b.leadGen ? "CPL" : "CAC"} ${mm("CAC", wi) != null ? inr(mm("CAC", wi)) : "-"}`);
   let chart;
-  if (effType === "line" || effType === "area") {
+  if (["line", "spline", "step", "area"].includes(effType)) {
     const ser = [{ data: series, color: "var(--accent)" }];
     if (compare && prev) ser.unshift({ data: prev, color: "var(--muted)" });
-    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} fill={effType === "area"} />;
+    chart = <LineMulti months={monthsLabels} series={ser} fmt={chartFmt(metric)} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} tip={compare ? null : tip} />;
+  } else if (effType === "hbar") {
+    chart = <HBars items={monthsLabels.map((mo, wi) => ({ label: mo, value: series[wi] || 0 })).filter(it => it.value)} fmt={barFmt} />;
   } else if (effType === "bars") {
-    chart = <ComboChart months={monthsLabels} bars={series} line={series.map(() => null)} barFmt={barFmt} />;
+    chart = <ComboChart months={monthsLabels} bars={series} line={series.map(() => null)} barFmt={barFmt} tip={tip} />;
   } else { // combo: metric bars + ROAS line
-    chart = <ComboChart months={monthsLabels} bars={series} line={roasLine} barFmt={barFmt} />;
+    chart = <ComboChart months={monthsLabels} bars={series} line={roasLine} barFmt={barFmt} tip={tip} />;
   }
 
   return (
@@ -108,7 +113,10 @@ function BrandChart({ b, lo, hi, monthsLabels }) {
           <select className="cur-select" value={type} onChange={e => setType(e.target.value)}>
             <option value="combo">Bars + ROAS</option>
             <option value="bars">Bars</option>
+            <option value="hbar">Horizontal bars</option>
             <option value="line">Line</option>
+            <option value="spline">Spline</option>
+            <option value="step">Step</option>
             <option value="area">Area</option>
           </select>
           {effType === "line" && prev && (
@@ -169,7 +177,7 @@ function BrandDetail({ brandKey, navigate }) {
   const metricRows = ["Ad Spend","GST Spend","Shopify Gross Sales","Dashboard Revenue","Dashboard ROAS","GST ROAS","Net ROAS","Orders","AOV","CAC"];
   const isRoas = m => m.includes("ROAS");
   const isMoney = m => ["Ad Spend","GST Spend","Shopify Gross Sales","Dashboard Revenue","AOV","CAC"].includes(m);
-  const fmtCell = (m, v) => v == null ? "—" : isRoas(m) ? roas(v) : isMoney(m) ? inr(v) : num(v);
+  const fmtCell = (m, v) => v == null ? "–" : isRoas(m) ? roas(v) : isMoney(m) ? inr(v) : num(v);
 
   const QHEAD = ["Q1","Q2","Q3","Q4"];
   const qData = {
@@ -220,8 +228,8 @@ function BrandDetail({ brandKey, navigate }) {
         <KPI label="Dash Revenue" value={inr(k.dashRev)} spark={b.revSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
         <KPI label="Dash ROAS" value={roas(k.dashRoas)} tone={roasHealth(k.dashRoas)} spark={b.roasSeries.slice(lo, hi + 1)} sparkColor="var(--good)" />
         <KPI label="Net ROAS" value={roas(k.netRoas)} sub="on GST spend" />
-        <KPI label={b.leadGen ? "Leads" : "Orders"} value={k.orders ? num(k.orders) : "—"} sub={b.leadGen ? "lead volume" : (k.aov ? "AOV " + inr(k.aov) : null)} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
-        <KPI label={b.leadGen ? "CPL" : "CAC"} value={k.cac ? inr(k.cac) : "—"} sub={b.leadGen ? "cost / lead" : (ret != null ? "Return " + pct(ret, 0) : null)} />
+        <KPI label={b.leadGen ? "Leads" : "Orders"} value={k.orders ? num(k.orders) : "–"} sub={b.leadGen ? "lead volume" : (k.aov ? "AOV " + inr(k.aov) : null)} spark={b.ordersSeries.slice(lo, hi + 1)} sparkColor="var(--violet)" />
+        <KPI label={b.leadGen ? "CPL" : "CAC"} value={k.cac ? inr(k.cac) : "–"} sub={b.leadGen ? "cost / lead" : (ret != null ? "Return " + pct(ret, 0) : null)} />
       </div>
 
       {b.active ? (
@@ -262,7 +270,7 @@ function BrandDetail({ brandKey, navigate }) {
                 <tbody>
                   {[["Ad Spend", "Ad Spend", inr], ["Dashboard Revenue", "Dashboard Revenue", inr], ["ROAS", "ROAS", roas], ["Orders", "Orders", num]].map(([label, key, f]) => {
                     const arr = qData[key]; const year = key === "ROAS" ? b.dashRoas : (key === "Ad Spend" ? b.spend : key === "Dashboard Revenue" ? b.dashRev : b.orders);
-                    return <tr key={label}><td>{label}</td>{arr.map((v, i) => <td className="n mono" key={i}>{v ? f(v) : "—"}</td>)}<td className="n mono strong">{year ? f(year) : "—"}</td></tr>;
+                    return <tr key={label}><td>{label}</td>{arr.map((v, i) => <td className="n mono" key={i}>{v ? f(v) : "–"}</td>)}<td className="n mono strong">{year ? f(year) : "–"}</td></tr>;
                   })}
                 </tbody>
               </table>

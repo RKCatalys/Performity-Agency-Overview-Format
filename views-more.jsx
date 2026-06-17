@@ -1,4 +1,4 @@
-/* views-more.jsx — Team, Alerts, DRR tracker, Playbook */
+/* views-more.jsx · Team, Alerts, DRR tracker, Playbook */
 const { useState: useStateM } = React;
 
 /* ---------------- Team & ownership ---------------- */
@@ -57,12 +57,12 @@ function Team({ navigate }) {
                   <td className="brand-cell"><span className="brand-dot" data-h={roasHealth(b.dashRoas)} /><span className="brand-name">{b.key}</span><RegionTag r={b.region} /></td>
                   <td onClick={ed ? stop : undefined}>{ed
                     ? <input className="tl-input" value={draft.tlMeta} onClick={stop} onChange={e => setDraft({ ...draft, tlMeta: e.target.value })} placeholder="Meta lead" />
-                    : (b.tl.tlMeta ? <span className="owner-inline"><Avatar name={b.tl.tlMeta} />{b.tl.tlMeta}</span> : <span className="dim">—</span>)}</td>
+                    : (b.tl.tlMeta ? <span className="owner-inline"><Avatar name={b.tl.tlMeta} />{b.tl.tlMeta}</span> : <span className="dim">–</span>)}</td>
                   <td onClick={ed ? stop : undefined}>{ed
                     ? <input className="tl-input" value={draft.tlGoogle} onClick={stop} onChange={e => setDraft({ ...draft, tlGoogle: e.target.value })} placeholder="Google lead" />
                     : (b.tl.tlGoogle ? <span className="owner-inline"><Avatar name={b.tl.tlGoogle} />{b.tl.tlGoogle}</span> : <span className="dim">Not started</span>)}</td>
-                  <td className="n mono">{b.active ? inr(b.spend) : "—"}</td>
-                  <td className="n">{b.active ? <RoasPill value={b.dashRoas} /> : <span className="dim">—</span>}</td>
+                  <td className="n mono">{b.active ? inr(b.spend) : "–"}</td>
+                  <td className="n">{b.active ? <RoasPill value={b.dashRoas} /> : <span className="dim">–</span>}</td>
                   <td className="dim sm">{b.tl.note || b.tl.comment || ""}</td>
                   <td className="n">{ed
                     ? <span className="tl-actions"><button className="tl-btn save" onClick={e => saveEdit(b, e)}>Save</button><button className="tl-btn" onClick={e => { e.stopPropagation(); setEditing(null); }}>Cancel</button></span>
@@ -111,7 +111,7 @@ function evalCustom(M, rules) {
       const v = def.get(b); if (v == null) return;
       const hit = r.cond === "below" ? v < r.value : v > r.value;
       if (hit) out.push({ sev: "warn", type: "Custom · " + r.metric + (r.cond === "below" ? " ▼" : " ▲"), brand: b.key,
-        msg: `${r.metric} is ${def.fmt(v)} — ${r.cond} the ${def.fmt(r.value)} threshold.`, metric: def.fmt(v), action: null });
+        msg: `${r.metric} is ${def.fmt(v)} · ${r.cond} the ${def.fmt(r.value)} threshold.`, metric: def.fmt(v), action: null });
     });
   });
   return out;
@@ -168,7 +168,7 @@ function Alerts({ navigate }) {
             ))}
           </div>
         )}
-        {!rules.length && !form && <div className="muted-sm">No custom alerts yet. Create rules like “ROAS below 1.5 for all brands” — matches show in the list below.</div>}
+        {!rules.length && !form && <div className="muted-sm">No custom alerts yet. Create rules like “ROAS below 1.5 for all brands” · matches show in the list below.</div>}
       </div>
 
       <div className="alert-list">
@@ -243,7 +243,7 @@ function DRR({ navigate }) {
                   <td className="n mono strong">{inr(r.drr)}</td>
                   <td className="n mono dim">{inr(r.spendDay)}</td>
                   <td className="n"><RoasPill value={r.roas} /></td>
-                  <td className="n">{r.pace != null ? <Delta value={r.pace} /> : <span className="dim">—</span>}</td>
+                  <td className="n">{r.pace != null ? <Delta value={r.pace} /> : <span className="dim">–</span>}</td>
                   <td className="n mono">{inr(r.monthRev)}</td>
                 </tr>
               ))}
@@ -257,12 +257,12 @@ function DRR({ navigate }) {
 
 /* ---------------- Playbook ---------------- */
 const PLAYBOOK = [
-  { date: "02 Jun", acct: "Verlas India", what: "Pause broad PMax, consolidate to brand + top-SKU shopping", why: "Dash ROAS 0.31× — spend far ahead of tracked revenue", status: "In progress", learn: "Attribution gap: most orders landing as Direct/Organic in GA4", next: "Add UTM enforcement + server-side tracking, recheck in 2 wks" },
+  { date: "02 Jun", acct: "Verlas India", what: "Pause broad PMax, consolidate to brand + top-SKU shopping", why: "Dash ROAS 0.31× · spend far ahead of tracked revenue", status: "In progress", learn: "Attribution gap: most orders landing as Direct/Organic in GA4", next: "Add UTM enforcement + server-side tracking, recheck in 2 wks" },
   { date: "01 Jun", acct: "Carbon Tree", what: "Audit revenue mapping in dashboard", why: "Dash ROAS 30.8× is implausibly high vs GST ROAS 1.31×", status: "Open", learn: "Likely double-counted offline/marketplace revenue in Dash feed", next: "Reconcile Dash Rev source with Shopify net before reporting" },
   { date: "28 May", acct: "Bxxy Shoes", what: "Scale Meta ABO winners +20% weekly, hold CPA cap", why: "Net ROAS steady ~2.1× with headroom on top creatives", status: "Working", learn: "Creative fatigue at ~1.8M impressions/wk; refresh cadence = 10d", next: "Brief 3 new UGC angles for Q3 launch" },
   { date: "26 May", acct: "House of Comfort", what: "Shift budget Meta→Google on bestseller terms", why: "Google CAC running below Meta on core SKUs", status: "Working", learn: "Search intent converts at higher AOV than prospecting", next: "Build SKU-level shopping feed tiers" },
-  { date: "20 May", acct: "Dhaaga Life", what: "Test premium-AOV bundles in checkout", why: "AOV ₹5.4K with strong 4.1× gross ROAS — room to push basket", status: "Done", learn: "Bundle uptake +14%, AOV +9% with no CVR drop", next: "Roll bundles to Linen on Me (similar AOV profile)" },
-  { date: "15 May", acct: "Powersutra", what: "Rework prospecting creative to problem-aware hooks", why: "GST ROAS slipped below 2× in April", status: "In progress", learn: "Hook-rate up but CVR flat — landing page is the bottleneck", next: "A/B new PDP layout, measure ATC CVR" },
+  { date: "20 May", acct: "Dhaaga Life", what: "Test premium-AOV bundles in checkout", why: "AOV ₹5.4K with strong 4.1× gross ROAS · room to push basket", status: "Done", learn: "Bundle uptake +14%, AOV +9% with no CVR drop", next: "Roll bundles to Linen on Me (similar AOV profile)" },
+  { date: "15 May", acct: "Powersutra", what: "Rework prospecting creative to problem-aware hooks", why: "GST ROAS slipped below 2× in April", status: "In progress", learn: "Hook-rate up but CVR flat · landing page is the bottleneck", next: "A/B new PDP layout, measure ATC CVR" },
 ];
 const PB_TONE = { "Done": "good", "Working": "accent", "In progress": "warn", "Open": "review" };
 const PB_STATUSES = ["Open", "In progress", "Working", "Done"];
@@ -311,7 +311,7 @@ function Playbook({ navigate }) {
               <input value={form.what} onChange={e => setForm({ ...form, what: e.target.value })} placeholder="What are you doing?" />
             </label>
             <label className="pb-wide">Problem (why)
-              <input value={form.why} onChange={e => setForm({ ...form, why: e.target.value })} placeholder="Why — the signal that prompted it" />
+              <input value={form.why} onChange={e => setForm({ ...form, why: e.target.value })} placeholder="Why · the signal that prompted it" />
             </label>
             <label className="pb-wide">Insights / learnings
               <input value={form.learn} onChange={e => setForm({ ...form, learn: e.target.value })} placeholder="What did you learn?" />
@@ -346,7 +346,7 @@ function Playbook({ navigate }) {
             </div>
           </div>
         ))}
-        {!PB.length && <div className="empty">No playbook entries yet — log your first experiment.</div>}
+        {!PB.length && <div className="empty">No playbook entries yet · log your first experiment.</div>}
       </div>
       <p className="pb-foot">Your entries are saved in this browser. Team-shared playbooks come with the backend upgrade.</p>
     </div>

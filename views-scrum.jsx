@@ -1,4 +1,4 @@
-/* views-scrum.jsx — week/month/quarter scrum grid with channel-section accordions,
+/* views-scrum.jsx · week/month/quarter scrum grid with channel-section accordions,
    trend sparklines, week-on-week deltas, and CSV export */
 const { useState: useStateS } = React;
 
@@ -261,7 +261,7 @@ function ScrumGrid({ brandKey }) {
       <div className="card-head scrum-head">
         <div>
           <h3>Weekly scrum &amp; channel breakdown</h3>
-          <span className="muted-sm">blended store first, then per-channel — toggle the time grain</span>
+          <span className="muted-sm">blended store first, then per-channel · toggle the time grain</span>
         </div>
         <div className="scrum-tools">
           {period !== "quarter" && fullActive.length > 1 && (
@@ -337,7 +337,7 @@ function ScrumComments({ brandKey }) {
             <div className="cm-body">{c.text}</div>
           </div>
         ))}
-        {!items.length && <div className="empty">No notes yet — add the first one.</div>}
+        {!items.length && <div className="empty">No notes yet · add the first one.</div>}
       </div>
     </div>
   );

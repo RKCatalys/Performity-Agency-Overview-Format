@@ -1,17 +1,24 @@
-/* views.jsx — Overview + Brand deep-dive screens */
+/* views.jsx · Overview + Brand deep-dive screens */
 const { useState: useStateV, useMemo: useMemoV } = React;
 
 function portfolioMonthly(brands) {
-  const spend = Array(12).fill(0), rev = Array(12).fill(0), orders = Array(12).fill(0);
+  const spend = Array(12).fill(0), rev = Array(12).fill(0), orders = Array(12).fill(0), gross = Array(12).fill(0), gst = Array(12).fill(0);
   brands.forEach(b => {
+    const gs = (b.mom && b.mom["Shopify Gross Sales"]) || [];
+    const gp = (b.mom && b.mom["GST Spend"]) || [];
     for (let i = 0; i < 12; i++) {
       spend[i] += b.spendSeries[i] || 0;
       rev[i] += b.revSeries[i] || 0;
       orders[i] += b.ordersSeries[i] || 0;
+      gross[i] += gs[i] || 0;
+      gst[i] += gp[i] || 0;
     }
   });
   const roas = spend.map((s, i) => s > 0 ? rev[i] / s : null);
-  return { spend, rev, orders, roas };
+  const grossRoas = spend.map((s, i) => s > 0 ? gross[i] / s : null);
+  const aov = orders.map((o, i) => o > 0 ? gross[i] / o : null);
+  const cac = orders.map((o, i) => o > 0 ? spend[i] / o : null);
+  return { spend, rev, orders, gross, gst, roas, grossRoas, aov, cac };
 }
 
 function KPI({ label, value, sub, spark, sparkColor, tone }) {
@@ -37,11 +44,84 @@ function RegionTag({ r }) {
   return <span className="region">{r}</span>;
 }
 
+// portfolio metric catalog for customizable cards + chart
+function portfolioMetrics(gt, pm, returnRate) {
+  return {
+    spend:     { label: "Ad Spend", value: inr(gt.spend), sub: "GST " + inr(gt.gstSpend), series: pm.spend, color: "var(--accent)" },
+    gross:     { label: "Gross Sales", value: inr(gt.grossSales), sub: "Shopify gross", series: pm.gross, color: "var(--accent)" },
+    revenue:   { label: "Dash / Net Revenue", value: inr(gt.dashRev), sub: "tracked attributed", series: pm.rev, color: "var(--good)" },
+    roas:      { label: "Blended ROAS", value: roas(gt.dashRoas), sub: "Dash Rev / Spend", series: pm.roas, color: "var(--good)", tone: roasHealth(gt.dashRoas) },
+    grossRoas: { label: "Gross ROAS", value: roas(gt.grossRoas), sub: "Gross / Spend", series: pm.grossRoas, color: "var(--good)" },
+    gstRoas:   { label: "GST ROAS", value: roas(gt.gstRoas), sub: "Gross / GST spend" },
+    orders:    { label: "Orders", value: num(gt.orders), sub: "AOV " + inr(gt.aov), series: pm.orders, color: "var(--violet)" },
+    aov:       { label: "AOV", value: gt.aov ? inr(gt.aov) : "-", sub: "blended", series: pm.aov, color: "var(--violet)" },
+    cac:       { label: "Blended CAC", value: inr(gt.cac), sub: "cost / acquisition", series: pm.cac },
+    returnRate:{ label: "Return Rate", value: returnRate != null ? pct(returnRate, 1) : "-", sub: "gross-weighted" },
+    gstSpend:  { label: "GST Spend", value: inr(gt.gstSpend), sub: "incl. GST", series: pm.gst, color: "var(--accent)" },
+  };
+}
+
+// a KPI card whose metric is user-selectable via a dropdown
+function OvCard({ mkey, metrics, onPick }) {
+  const m = metrics[mkey] || {};
+  return (
+    <div className="kpi">
+      <div className="kpi-top">
+        <select className="kpi-select" value={mkey} onChange={e => onPick(e.target.value)}>
+          {Object.keys(metrics).map(k => <option key={k} value={k}>{metrics[k].label}</option>)}
+        </select>
+        {m.series && <Sparkline data={m.series} color={m.color || "var(--accent)"} w={58} h={22} />}
+      </div>
+      <div className={"kpi-value " + (m.tone || "")}>{m.value}</div>
+      {m.sub && <div className="kpi-sub">{m.sub}</div>}
+    </div>
+  );
+}
+
+// customizable portfolio chart: metric + chart type + rich tooltip
+function PortfolioChart({ pm }) {
+  const [metric, setMetric] = useStateV("spend");
+  const [type, setType] = useStateV("combo");
+  const opts = { spend: "Ad Spend", gross: "Gross Sales", revenue: "Dash Revenue", orders: "Orders", aov: "AOV", cac: "CAC", roas: "Blended ROAS", grossRoas: "Gross ROAS" };
+  const ser = { spend: pm.spend, gross: pm.gross, revenue: pm.rev, orders: pm.orders, aov: pm.aov, cac: pm.cac, roas: pm.roas, grossRoas: pm.grossRoas }[metric];
+  const ratio = metric === "roas" || metric === "grossRoas";
+  const money = ["spend", "gross", "revenue", "aov", "cac"].includes(metric);
+  const fmt = ratio ? (v => v == null ? "" : (+v).toFixed(1) + "×") : money ? (v => inr(v).replace("₹", "")) : (v => num(v));
+  const barFmt = money ? (v => inr(v)) : ratio ? (v => roas(v)) : (v => num(v));
+  const tip = MONTHS.map((mo, i) => `${mo}\nSpend ${inr(pm.spend[i])}   Gross ${inr(pm.gross[i])}\nRevenue ${inr(pm.rev[i])}   ROAS ${pm.roas[i] != null ? pm.roas[i].toFixed(2) + "×" : "-"}\nOrders ${num(pm.orders[i])}   AOV ${pm.aov[i] != null ? inr(pm.aov[i]) : "-"}   CAC ${pm.cac[i] != null ? inr(pm.cac[i]) : "-"}`);
+  const effType = ratio && type === "combo" ? "line" : type;
+  let chart;
+  if (["line", "spline", "step", "area"].includes(effType))
+    chart = <LineMulti months={MONTHS} series={[{ data: ser, color: ratio ? "var(--good)" : "var(--accent)" }]} fmt={fmt} fill={effType === "area"} mode={effType === "spline" ? "spline" : effType === "step" ? "step" : "linear"} tip={tip} />;
+  else if (effType === "hbar")
+    chart = <HBars items={MONTHS.map((mo, i) => ({ label: mo, value: ser[i] || 0 })).filter(it => it.value)} fmt={barFmt} />;
+  else if (effType === "bars")
+    chart = <ComboChart months={MONTHS} bars={ser} line={ser.map(() => null)} barFmt={barFmt} tip={tip} />;
+  else
+    chart = <ComboChart months={MONTHS} bars={ser} line={pm.roas} barFmt={barFmt} tip={tip} />;
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Performance trend</h3>
+        <div className="chart-tools">
+          <select className="cur-select" value={metric} onChange={e => setMetric(e.target.value)}>{Object.keys(opts).map(k => <option key={k} value={k}>{opts[k]}</option>)}</select>
+          <select className="cur-select" value={type} onChange={e => setType(e.target.value)}>
+            <option value="combo">Bars + ROAS</option><option value="bars">Bars</option><option value="hbar">Horizontal bars</option>
+            <option value="line">Line</option><option value="spline">Spline</option><option value="step">Step</option><option value="area">Area</option>
+          </select>
+        </div>
+      </div>
+      {chart}
+    </div>
+  );
+}
+
 /* ---------------- Overview ---------------- */
 function Overview({ navigate }) {
   const M = window.MODEL;
   const [filter, setFilter] = useStateV("active");
   const [sort, setSort] = useStateV({ k: "spend", dir: -1 });
+  const [cards, setCards] = useStateV(() => window.PStore.get("ovCards", ["spend", "gross", "revenue", "roas", "orders", "aov", "cac"]));
   const tref = window.useColResize();
   const pm = useMemoV(() => portfolioMonthly(M.brands), [M]);
   const gt = M.grandTotal;
@@ -73,8 +153,11 @@ function Overview({ navigate }) {
     </th>
   );
 
-  // top brands by spend for share bar
-  const top = M.brands.filter(b => b.active).sort((a, b) => b.spend - a.spend).slice(0, 6);
+  const allMetrics = portfolioMetrics(gt, pm, returnRate);
+  const pickCard = (i, k) => { const next = cards.slice(); next[i] = k; setCards(next); window.PStore.set("ovCards", next); };
+
+  // top brands by spend for the concentration list (show enough to fill the space)
+  const top = M.brands.filter(b => b.active).sort((a, b) => b.spend - a.spend).slice(0, 12);
   const topTotal = top.reduce((s, b) => s + b.spend, 0);
 
   return (
@@ -94,13 +177,7 @@ function Overview({ navigate }) {
       </div>
 
       <div className="kpi-row seven">
-        <KPI label="Ad Spend" value={inr(gt.spend)} sub={"GST " + inr(gt.gstSpend)} spark={pm.spend} />
-        <KPI label="Dashboard Revenue" value={inr(gt.dashRev)} sub="tracked attributed" spark={pm.rev} sparkColor="var(--good)" />
-        <KPI label="Blended ROAS" value={roas(blendedRoas)} sub="Dash Rev ÷ Spend" tone={roasHealth(blendedRoas)} spark={pm.roas} sparkColor="var(--good)" />
-        <KPI label="Orders" value={num(gt.orders)} sub={"AOV " + inr(gt.aov)} spark={pm.orders} sparkColor="var(--violet)" />
-        <KPI label="AOV" value={gt.aov ? inr(gt.aov) : "—"} sub="blended" />
-        <KPI label="Return Rate" value={returnRate != null ? pct(returnRate, 1) : "—"} sub="gross-weighted" />
-        <KPI label="Blended CAC" value={inr(gt.cac)} sub="cost / acquisition" />
+        {cards.map((k, i) => <OvCard key={i} mkey={k} metrics={allMetrics} onPick={(nk) => pickCard(i, nk)} />)}
       </div>
 
       {M.insights && M.insights.length > 0 && (
@@ -122,15 +199,9 @@ function Overview({ navigate }) {
       )}
 
       <div className="grid-2">
+        <PortfolioChart pm={pm} />
         <div className="card">
-          <div className="card-head">
-            <h3>Spend &amp; blended ROAS</h3>
-            <div className="legend"><span className="lg bar" />Ad spend<span className="lg line" />ROAS</div>
-          </div>
-          <ComboChart months={MONTHS} bars={pm.spend} line={pm.roas} />
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>Spend concentration</h3><span className="muted-sm">top 6 brands</span></div>
+          <div className="card-head"><h3>Spend concentration</h3><span className="muted-sm">top brands by spend</span></div>
           <div className="share-list">
             {top.map(b => (
               <div className="share-row" key={b.key} onClick={() => navigate("brand", b.key)}>
@@ -183,9 +254,9 @@ function Overview({ navigate }) {
                   <td className="n mono">{inr(b.dashRev)}</td>
                   <td className="n"><RoasPill value={b.dashRoas} /></td>
                   <td className="n mono dim">{roas(b.netRoas)}</td>
-                  <td className="n mono">{b.orders ? num(b.orders) : "—"}</td>
-                  <td className="n mono dim">{b.aov ? inr(b.aov) : "—"}</td>
-                  <td className="n mono dim">{b.cac ? inr(b.cac) : "—"}</td>
+                  <td className="n mono">{b.orders ? num(b.orders) : "–"}</td>
+                  <td className="n mono dim">{b.aov ? inr(b.aov) : "–"}</td>
+                  <td className="n mono dim">{b.cac ? inr(b.cac) : "–"}</td>
                   <td className="n"><Sparkline data={b.revSeries} w={72} h={22} color="var(--good)" /></td>
                   <td><div className="owners"><Avatar name={b.tl.tlMeta} /><Avatar name={b.tl.tlGoogle} /></div></td>
                 </tr>

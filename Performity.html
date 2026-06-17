@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Performity — Catalys</title>
+<title>Performity · Catalys</title>
 <link rel="icon" href="assets/logo-icon.png" type="image/png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -82,6 +82,11 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .sidebar-foot{margin-top:auto; padding:14px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px;}
 .sf-meta{font-size:11.5px; color:var(--muted); line-height:1.3;}
 .sf-meta b{color:var(--text-2); font-weight:600;}
+.sf-by{opacity:.7;}
+.catalys-wm{height:12px; vertical-align:middle; opacity:.9;}
+body[data-theme="dark"] .catalys-wm{filter:invert(1) brightness(1.6);}
+.up-catalys{margin-top:14px; display:flex; align-items:center; justify-content:center; gap:7px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;}
+.up-catalys .catalys-wm{height:14px; opacity:.85;}
 
 .main{display:flex; flex-direction:column; min-width:0;}
 .topbar{height:56px; background:rgba(255,255,255,.85); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; padding:0 24px; position:sticky; top:0; z-index:20;}
@@ -119,6 +124,8 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .kpi{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:var(--kpi-pad); box-shadow:var(--shadow);}
 .kpi-top{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; min-height:22px;}
 .kpi-label{font-size:11.5px; font-weight:600; color:var(--text-2); letter-spacing:.01em;}
+.kpi-select{font-family:inherit; font-size:11.5px; font-weight:600; color:var(--text-2); letter-spacing:.01em; border:none; background:transparent; outline:none; cursor:pointer; padding:2px 16px 2px 4px; margin-left:-4px; border-radius:6px; max-width:140px; appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l4 4 4-4' fill='%23949ba5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 4px center;}
+.kpi-select:hover{color:var(--accent); background-color:var(--accent-soft);}
 .kpi-top svg{flex:none;}
 .kpi-value{font-size:23px; font-weight:700; letter-spacing:-.025em; font-family:var(--mono); line-height:1;}
 .kpi-value.good{color:var(--good);} .kpi-value.bad{color:var(--bad);} .kpi-value.warn{color:var(--warn);}
@@ -586,7 +593,7 @@ function Sidebar({ route, navigate, alertCount, open, onClose }) {
       </nav>
       <div className="sidebar-foot">
         <div className="user-av">RS</div>
-        <div className="sf-meta"><b>Catalys Performance</b><br />Last sync · 9 Jun 2026</div>
+        <div className="sf-meta">Performance workspace<br /><span className="sf-by">by</span> <img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /></div>
       </div>
     </aside>
     </>
@@ -868,7 +875,7 @@ function UploadScreen({ onLoaded, initialUrl, initialError }) {
           <img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" />
         </div>
         <h1>Upload your Agency Overview</h1>
-        <p className="up-sub">Drop in your <b>Catalys Agency Overview</b> Excel workbook (.xlsx) and Performity builds your live portfolio dashboard — brands, channels, weekly scrum, alerts and team rollups.</p>
+        <p className="up-sub">Drop in your <b>Catalys Agency Overview</b> Excel workbook (.xlsx) and Performity builds your live portfolio dashboard · brands, channels, weekly scrum, alerts and team rollups.</p>
 
         <div className={"dropzone" + (drag ? " drag" : "")}
           onClick={() => inputRef.current.click()}
@@ -901,7 +908,8 @@ function UploadScreen({ onLoaded, initialUrl, initialError }) {
           </div>
         )}
       </div>
-      <p className="up-note">Your file is parsed entirely in your browser — nothing is uploaded to a server. Parsed data is cached locally so it stays after a refresh.</p>
+      <p className="up-note">Your file is parsed entirely in your browser · nothing is uploaded to a server. Parsed data is cached locally so it stays after a refresh.</p>
+      <div className="up-catalys"><span>A</span><img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /><span>product</span></div>
     </div>
   );
 }
@@ -952,7 +960,7 @@ function renderApp(info) {
 function boot(forceUpload) {
   const info = forceUpload ? null : loadInfo();
 
-  // ?sheet=<link|id> — connect (or switch) to a Google Sheet from the URL.
+  // ?sheet=<link|id> · connect (or switch) to a Google Sheet from the URL.
   const sheetParam = new URLSearchParams(window.location.search).get("sheet");
   if (!forceUpload && sheetParam) {
     root.render(<Loading label="Connecting to Google Sheet…" />);
@@ -980,7 +988,7 @@ function boot(forceUpload) {
   const saved = forceUpload ? null : loadSaved();
   if (saved && saved.AGENCY) { applyData(saved); renderApp(info); return; }
 
-  // ?demo=1 — auto-load the bundled sample dataset (handy shareable demo link)
+  // ?demo=1 · auto-load the bundled sample dataset (handy shareable demo link)
   if (!forceUpload && /[?&]demo\b/.test(window.location.search)) {
     loadSampleData().then((data) => {
       applyData(data); renderApp({ file: "Sample dataset", source: "sample", at: Date.now() });

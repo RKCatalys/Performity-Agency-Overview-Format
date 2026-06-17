@@ -1,4 +1,4 @@
-/* lib.jsx — formatting helpers, lightweight SVG charts, UI primitives.
+/* lib.jsx · formatting helpers, lightweight SVG charts, UI primitives.
    Exported to window for use across script files. */
 
 /* ---------------- User store (browser-local, namespaced) ---------------- */
@@ -35,7 +35,7 @@ function applyCurrency(code, fx) {
 /* ---------------- Formatting ---------------- */
 // Compact currency in the active display currency (Cr/L/K for INR, B/M/K otherwise)
 function inr(n, { sign = false } = {}) {
-  if (n === null || n === undefined || isNaN(n)) return "—";
+  if (n === null || n === undefined || isNaN(n)) return "–";
   const cur = curState();
   const v = n * (cur.rate || 1);
   const neg = v < 0; const a = Math.abs(v); const sym = cur.symbol;
@@ -55,20 +55,20 @@ function inr(n, { sign = false } = {}) {
   return (sign ? "+" : "") + s;
 }
 function inrFull(n) {
-  if (n === null || n === undefined || isNaN(n)) return "—";
+  if (n === null || n === undefined || isNaN(n)) return "–";
   const cur = curState();
   return cur.symbol + Math.round(n * (cur.rate || 1)).toLocaleString(cur.style === "in" ? "en-IN" : "en-US");
 }
 function num(n) {
-  if (n === null || n === undefined || isNaN(n)) return "—";
+  if (n === null || n === undefined || isNaN(n)) return "–";
   return Math.round(n).toLocaleString("en-IN");
 }
 function roas(n) {
-  if (n === null || n === undefined || isNaN(n) || n === 0) return "—";
+  if (n === null || n === undefined || isNaN(n) || n === 0) return "–";
   return n.toFixed(2) + "×";
 }
 function pct(n, digits = 1) {
-  if (n === null || n === undefined || isNaN(n)) return "—";
+  if (n === null || n === undefined || isNaN(n)) return "–";
   return (n * 100).toFixed(digits) + "%";
 }
 function delta(curr, prev) {
@@ -112,8 +112,9 @@ function Sparkline({ data, w = 96, h = 28, color = "var(--accent)", fill = true 
 }
 
 // grouped bar + line combo: monthly spend bars + ROAS line
-function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel, barFmt }) {
+function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel, barFmt, tip }) {
   const bf = barFmt || (v => inr(v));
+  const tipAt = (i) => tip && tip[i] ? tip[i] : (months[i] + " · " + bf(bars[i]) + (line[i] != null ? " · ROAS " + line[i].toFixed(2) + "×" : ""));
   const padL = 56, padR = 48, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
   const barVals = bars.map(v => v ?? 0);
@@ -143,10 +144,10 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel,
         <g key={i}>
           <rect x={x(i) - bw / 2} y={yBar(barVals[i])} width={bw} height={Math.max(0, padT + ih - yBar(barVals[i]))}
             rx="3" fill="var(--accent)" opacity={barVals[i] ? 0.85 : 0.12}>
-            <title>{m + " · " + bf(bars[i]) + (lineVals[i] != null ? " · ROAS " + lineVals[i].toFixed(2) + "×" : "")}</title>
+            <title>{tipAt(i)}</title>
           </rect>
           <rect x={x(i) - slot / 2} y={padT} width={slot} height={ih} fill="transparent">
-            <title>{m + " · " + bf(bars[i]) + (lineVals[i] != null ? " · ROAS " + lineVals[i].toFixed(2) + "×" : "")}</title>
+            <title>{tipAt(i)}</title>
           </rect>
           <text x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>
         </g>
@@ -159,7 +160,7 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel,
   );
 }
 
-function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false }) {
+function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false, mode = "linear", tip }) {
   const padL = 56, padR = 16, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
   const all = series.flatMap(s => s.data.filter(v => v != null));
@@ -169,6 +170,26 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = fals
   const y = v => padT + ih - ((v - min) / (max - min)) * ih;
   const ticks = 4;
   const gid = "lm" + Math.random().toString(36).slice(2, 7);
+  // build a path through points [{x,y}] in the chosen mode (linear | spline | step)
+  const buildPath = (pts) => {
+    if (!pts.length) return "";
+    if (mode === "step") {
+      let d = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 1; i < pts.length; i++) d += ` H ${pts[i].x} V ${pts[i].y}`;
+      return d;
+    }
+    if (mode === "spline" && pts.length > 2) {
+      let d = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+        const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+        d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+      }
+      return d;
+    }
+    return pts.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  };
   return (
     <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
       {fill && <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
@@ -182,13 +203,35 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = fals
       })}
       {months.map((m, i) => <text key={i} x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>)}
       {series.map((s, si) => {
-        let path = "", started = false, firstX = null, lastX = null;
-        s.data.forEach((v, i) => { if (v != null) { path += (started ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1) + " "; if (firstX == null) firstX = x(i); lastX = x(i); started = true; } else started = false; });
-        const area = (fill && firstX != null) ? path + `L ${lastX} ${padT + ih} L ${firstX} ${padT + ih} Z` : null;
+        const pts = s.data.map((v, i) => v == null ? null : { x: x(i), y: y(v) }).filter(Boolean);
+        const path = buildPath(pts);
+        const area = (fill && pts.length) ? path + ` L ${pts[pts.length - 1].x} ${padT + ih} L ${pts[0].x} ${padT + ih} Z` : null;
         return <g key={si}>
           {area && si === series.length - 1 && <path d={area} fill={`url(#${gid})`} />}
           <path d={path} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-          {s.data.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="2.6" fill={s.color}><title>{months[i] + " · " + fmt(v)}</title></circle>)}
+          {s.data.map((v, i) => v != null && <circle key={i} cx={x(i)} cy={y(v)} r="2.6" fill={s.color}><title>{tip && tip[i] ? tip[i] : (months[i] + " · " + fmt(v))}</title></circle>)}
+        </g>;
+      })}
+    </svg>
+  );
+}
+
+// Horizontal bar chart (ranked). items: [{label, value, color?}]
+function HBars({ items, w = 720, barH = 22, gap = 11, fmt = (v) => v, color = "var(--accent)" }) {
+  const max = Math.max(...items.map(it => it.value || 0), 1);
+  const labelW = 130, valW = 70;
+  const h = items.length * (barH + gap) + gap;
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      {items.map((it, i) => {
+        const yy = gap + i * (barH + gap);
+        const bw = Math.max(2, (it.value || 0) / max * (w - labelW - valW));
+        return <g key={i}>
+          <text x={0} y={yy + barH / 2 + 4} textAnchor="start" className="ax" style={{ fontSize: 11.5, fill: "var(--text-2)" }}>{it.label}</text>
+          <rect x={labelW} y={yy} width={bw} height={barH} rx="4" fill={it.color || color} opacity="0.9">
+            <title>{it.label + " · " + fmt(it.value)}</title>
+          </rect>
+          <text x={labelW + bw + 7} y={yy + barH / 2 + 4} textAnchor="start" className="ax" style={{ fontSize: 11 }}>{fmt(it.value)}</text>
         </g>;
       })}
     </svg>
@@ -243,7 +286,7 @@ function Donut({ segments, size = 132, stroke = 20, center }) {
 
 /* ---------------- UI primitives ---------------- */
 function Delta({ value, invert = false }) {
-  if (value == null) return <span className="delta flat">—</span>;
+  if (value == null) return <span className="delta flat">–</span>;
   const up = value >= 0;
   const good = invert ? !up : up;
   return <span className={"delta " + (Math.abs(value) < 0.001 ? "flat" : good ? "up" : "down")}>
@@ -256,7 +299,7 @@ function Badge({ children, tone = "neutral" }) {
 }
 
 function Avatar({ name }) {
-  if (!name) return <span className="avatar none">—</span>;
+  if (!name) return <span className="avatar none">–</span>;
   const init = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const palette = ["#1f6feb","#7c3aed","#0e9f6e","#d97706","#db2777","#0891b2","#65a30d"];
   let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -266,12 +309,12 @@ function Avatar({ name }) {
 // classify a scrum metric label -> formatter
 function metricFmt(label) {
   const m = label.toLowerCase();
-  if (m.includes("roas")) return v => v == null ? "—" : (+v).toFixed(2) + "×";
+  if (m.includes("roas")) return v => v == null ? "–" : (+v).toFixed(2) + "×";
   if (m.includes("%") || m.includes("cvr") || m.includes("ctr") || m.includes("share") ||
       m.includes("contribution") || m.includes("return") || m.includes("achievement") || m.includes("δ"))
-    return v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+    return v => v == null ? "–" : (v * 100).toFixed(1) + "%";
   if (/(sales|spend|revenue|aov|cac|cpm|cpc|cpa|target|cp )/.test(m)) return v => inr(v);
-  return v => v == null ? "—" : num(v);
+  return v => v == null ? "–" : num(v);
 }
 // is a metric a "headline" row worth emphasising
 function isHeadline(label) {
@@ -311,4 +354,4 @@ function useColResize() {
 Object.assign(window, { metricFmt, isHeadline,
   inr, inrFull, num, roas, pct, delta, MONTHS, roasHealth,
   CURRENCIES, curState, applyCurrency, useColResize,
-  Sparkline, ComboChart, LineMulti, Funnel, Donut, Delta, Badge, Avatar });
+  Sparkline, ComboChart, LineMulti, HBars, Funnel, Donut, Delta, Badge, Avatar });
