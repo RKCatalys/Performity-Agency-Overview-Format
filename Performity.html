@@ -366,8 +366,82 @@ button{font-family:inherit; cursor:pointer; border:none; background:none; color:
 .scrum-table.with-wow tbody td{padding-top:6px; padding-bottom:6px;}
 .scrum-legend .wk-d{font-size:11px; margin:0;}
 
-@media(max-width:1080px){ .grid-2{grid-template-columns:1fr;} .kpi-row,.kpi-row.six{grid-template-columns:repeat(3,1fr);} }
-@media(max-width:760px){ .app{grid-template-columns:1fr;} .sidebar{display:none;} .kpi-row,.kpi-row.six,.alert-summary{grid-template-columns:repeat(2,1fr);} }
+/* ===== Modern polish: motion, glass, micro-interactions ===== */
+@keyframes fadeUp{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
+@keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+.content{animation:fadeIn .25s ease;}
+.screen{animation:fadeUp .4s cubic-bezier(.22,.61,.36,1);}
+.kpi, .grid-2 > .card, .insight-pill, .team-card, .alert-item, .pb-card{animation:fadeUp .45s cubic-bezier(.22,.61,.36,1) both;}
+.kpi-row .kpi:nth-child(2){animation-delay:.04s} .kpi-row .kpi:nth-child(3){animation-delay:.08s}
+.kpi-row .kpi:nth-child(4){animation-delay:.12s} .kpi-row .kpi:nth-child(5){animation-delay:.16s}
+.kpi-row .kpi:nth-child(6){animation-delay:.20s} .kpi-row .kpi:nth-child(7){animation-delay:.24s}
+.kpi{transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease;}
+.kpi:hover{transform:translateY(-3px); box-shadow:var(--shadow-lg); border-color:var(--border-strong);}
+.team-card{transition:transform .15s ease, box-shadow .15s ease;}
+.team-card:hover{transform:translateY(-3px); box-shadow:var(--shadow-lg);}
+.share-row{transition:transform .15s ease;} .share-row:hover{transform:translateX(3px);}
+button, .seg, .chip, .nav-item, .tool-btn, .topbar-btn, .icon-btn, .cur-select, .insight-pill{transition:background .15s ease, color .15s ease, border-color .15s ease, transform .12s ease, box-shadow .15s ease;}
+.btn-primary:active, .topbar-btn:active, .tool-btn:active, .icon-btn:active, .chip:active, .hamburger:active{transform:scale(.95);}
+.nav-item{will-change:transform;} .nav-item:active{transform:scale(.98);}
+.data-table tbody tr{transition:background .12s ease;}
+.brand-logo .logo-mark-img{transition:transform .35s cubic-bezier(.34,1.56,.64,1);}
+.brand-logo:hover .logo-mark-img{transform:rotate(-6deg) scale(1.06);}
+/* glass surfaces */
+.topbar{backdrop-filter:saturate(160%) blur(12px); -webkit-backdrop-filter:saturate(160%) blur(12px);}
+body[data-theme="dark"] .topbar{background:rgba(21,28,44,.72);}
+.up-card{backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); background:rgba(255,255,255,.82);}
+body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
+.tweaks-panel, .search-pop{backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);}
+.nav-item.on{position:relative;}
+.nav-item.on::before{content:""; position:absolute; left:0; top:6px; bottom:6px; width:3px; border-radius:0 3px 3px 0; background:var(--accent);}
+.up-logo-icon{animation:floaty 4.5s ease-in-out infinite;}
+@keyframes floaty{0%,100%{transform:translateY(0);} 50%{transform:translateY(-6px);}}
+.dropzone{transition:border-color .18s ease, background .18s ease, transform .18s ease;}
+.dropzone:hover{transform:translateY(-2px);}
+
+/* hamburger + mobile nav drawer */
+.hamburger{display:none; align-items:center; justify-content:center; width:38px; height:38px; border-radius:9px; color:var(--text-2); background:transparent; border:none; margin-right:2px;}
+.hamburger:hover{background:var(--surface-2); color:var(--text);}
+.nav-overlay{display:none; position:fixed; inset:0; background:rgba(10,16,28,.45); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px); z-index:50; opacity:0; transition:opacity .25s ease;}
+
+/* ===== Responsive ===== */
+@media(max-width:1180px){ .content{max-width:100%;} }
+@media(max-width:1080px){
+  .grid-2{grid-template-columns:1fr;}
+  .kpi-row, .kpi-row.six, .kpi-row.seven{grid-template-columns:repeat(3,1fr);}
+  .insight-strip{grid-template-columns:repeat(2,1fr);}
+}
+@media(max-width:900px){
+  .app{grid-template-columns:1fr;}
+  .hamburger{display:inline-flex;}
+  .sidebar{position:fixed; top:0; left:0; height:100vh; height:100dvh; width:250px; z-index:60;
+    transform:translateX(-100%); transition:transform .28s cubic-bezier(.22,.61,.36,1);
+    box-shadow:var(--shadow-lg); background:rgba(255,255,255,.94); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);}
+  body[data-theme="dark"] .sidebar{background:rgba(21,28,44,.94);}
+  .sidebar.open{transform:none;}
+  .nav-overlay{display:block; pointer-events:none;}
+  .nav-overlay.show{opacity:1; pointer-events:auto;}
+}
+@media(max-width:760px){
+  .kpi-row, .kpi-row.six, .kpi-row.seven, .alert-summary{grid-template-columns:repeat(2,1fr);}
+  .content{padding:16px 14px 56px;}
+  .topbar{padding:0 12px; gap:8px;}
+  .topbar .sync{display:none;}
+  .topbar-btn .btn-label{display:none;}
+  .topbar-btn{padding:7px 9px;}
+  .search{flex:1; min-width:0;}
+  .page-head{flex-direction:column; align-items:flex-start; gap:10px;}
+  .brand-title-row{flex-wrap:wrap;}
+  .brand-title h1{font-size:21px; white-space:normal;}
+  .kpi-value{font-size:20px;}
+  .pb-form-grid{grid-template-columns:1fr;}
+}
+@media(max-width:480px){
+  .kpi-row, .kpi-row.six, .kpi-row.seven{grid-template-columns:1fr 1fr;}
+  .insight-strip, .team-grid{grid-template-columns:1fr;}
+  .alert-summary{grid-template-columns:1fr 1fr;}
+}
+@media(prefers-reduced-motion:reduce){ *, .screen, .kpi, .card, .sidebar{animation:none !important; transition:none !important;} }
 
 /* ---- CRUD: playbook form, team edit, custom alerts, comments ---- */
 .pb-form{padding:18px 20px;}
@@ -487,10 +561,12 @@ function Icon({ d }) {
   return <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
 }
 
-function Sidebar({ route, navigate, alertCount }) {
+function Sidebar({ route, navigate, alertCount, open, onClose }) {
   const groups = [...new Set(NAV.map(n => n.group))];
   return (
-    <aside className="sidebar">
+    <>
+    <div className={"nav-overlay" + (open ? " show" : "")} onClick={onClose} />
+    <aside className={"sidebar" + (open ? " open" : "")}>
       <div className="brand-logo">
         <img className="logo-mark-img" src="assets/logo-icon.png" alt="" />
         <div className="logo-text">performity<small>Catalys workspace</small></div>
@@ -513,6 +589,7 @@ function Sidebar({ route, navigate, alertCount }) {
         <div className="sf-meta"><b>Catalys Performance</b><br />Last sync · 9 Jun 2026</div>
       </div>
     </aside>
+    </>
   );
 }
 
@@ -577,6 +654,7 @@ function App({ onReset, fileInfo, onRefresh }) {
     return { screen: "overview" };
   };
   const [route, setRoute] = useState(parseHash());
+  const [navOpen, setNavOpen] = useState(false);
   useEffect(() => {
     const h = () => setRoute(parseHash());
     window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h);
@@ -584,6 +662,7 @@ function App({ onReset, fileInfo, onRefresh }) {
   const navigate = (screen, brand) => {
     window.location.hash = "/" + screen + (brand ? "/" + encodeURIComponent(brand) : "");
     window.scrollTo(0, 0);
+    setNavOpen(false);
   };
 
   // apply tweaks
@@ -608,9 +687,12 @@ function App({ onReset, fileInfo, onRefresh }) {
 
   return (
     <div className="app">
-      <Sidebar route={route} navigate={navigate} alertCount={alertCount} />
+      <Sidebar route={route} navigate={navigate} alertCount={alertCount} open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="main">
         <header className="topbar">
+          <button className="hamburger" onClick={() => setNavOpen(true)} aria-label="Open menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          </button>
           <TopSearch navigate={navigate} />
           <div className="topbar-right">
             <span className="sync">{new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · <b>{M.activeBrands.length}</b> active{fileInfo && fileInfo.source === "gsheet" ? " · live" : ""}</span>
@@ -626,12 +708,12 @@ function App({ onReset, fileInfo, onRefresh }) {
             {onRefresh && (
               <button className="topbar-btn" onClick={onRefresh} title="Pull the latest from the connected Google Sheet">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-                Refresh
+                <span className="btn-label">Refresh</span>
               </button>
             )}
             <button className="topbar-btn" onClick={onReset} title={fileInfo ? "Loaded: " + fileInfo.file : "Upload a new workbook / connect a sheet"}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-              {fileInfo && fileInfo.source === "gsheet" ? "Change source" : "New upload"}
+              <span className="btn-label">{fileInfo && fileInfo.source === "gsheet" ? "Change source" : "New upload"}</span>
             </button>
             <div className="user-av">RS</div>
           </div>
