@@ -48,7 +48,7 @@ create policy "bootstrap first admin" on public.members
 Then seed yourself as the first admin (use your real email):
 
 ```sql
-insert into public.members (email, role) values ('arpit@catalys.co', 'admin')
+insert into public.members (email, role) values ('rakesh.s@catalys.co', 'admin')
 on conflict (email) do update set role = 'admin';
 ```
 
@@ -66,7 +66,7 @@ window.PERFORMITY_AUTH = {
   enabled: true,
   url: "https://YOUR-PROJECT.supabase.co",
   anonKey: "YOUR-ANON-KEY",
-  adminEmails: ["arpit@catalys.co"],
+  adminEmails: ["rakesh.s@catalys.co"],
 };
 ```
 

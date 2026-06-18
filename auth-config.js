@@ -8,5 +8,5 @@ window.PERFORMITY_AUTH = {
   url: "",          // e.g. "https://xxxx.supabase.co"
   anonKey: "",      // your Supabase anon/public key
   // these emails become admins automatically on first login (bootstrap)
-  adminEmails: ["arpit@catalys.co"],
+  adminEmails: ["rakesh.s@catalys.co"],
 };
