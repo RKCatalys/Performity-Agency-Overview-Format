@@ -47,6 +47,7 @@
   function signIn(email, password) { return client.auth.signInWithPassword({ email: email.trim(), password }); }
   function signUp(email, password) { return client.auth.signUp({ email: email.trim(), password }); }
   function signInMagic(email) { return client.auth.signInWithOtp({ email: email.trim() }); }
+  function resetPassword(email) { return client.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + window.location.pathname }); }
   function signOut() { return client.auth.signOut(); }
 
   // ---- admin: manage the allowlist ----
@@ -64,7 +65,7 @@
     get member() { return member; },
     enabled: () => !!(cfg && cfg.enabled && ready),
     isAdmin: () => !!(member && member.role === "admin"),
-    signIn, signUp, signInMagic, signOut,
+    signIn, signUp, signInMagic, resetPassword, signOut,
     listMembers, addMember, updateRole, removeMember,
   };
 })();
