@@ -607,6 +607,11 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
 .brand-range{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
 .icon-btn{display:inline-flex; align-items:center; justify-content:center; width:34px; height:32px; color:var(--text-2); border:1px solid var(--border); border-radius:8px; background:var(--surface);}
 .icon-btn:hover{border-color:var(--accent); color:var(--accent);}
+.auth-form{display:flex; flex-direction:column; gap:10px; margin:18px 0 6px;}
+.auth-input{height:44px; border:1px solid var(--border-strong); border-radius:10px; padding:0 13px; font-family:inherit; font-size:14px; color:var(--text); background:var(--surface-2); outline:none;}
+.auth-input:focus{border-color:var(--accent); background:var(--surface); box-shadow:0 0 0 3px var(--accent-soft);}
+.auth-btn{height:44px; border-radius:10px; font-size:14px;}
+.icon-btn .avatar{width:26px; height:26px; font-size:10px;}
 </style>
 </head>
 <body data-density="regular">
@@ -623,6 +628,10 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
 <!-- SheetJS (xlsx) for in-browser Excel parsing + the Performity workbook parser -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="parser.js"></script>
+<!-- Supabase auth (optional; activated via auth-config.js) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
+<script src="auth.js"></script>
 <script type="text/babel" src="lib.jsx"></script>
 <script type="text/babel" src="model.jsx"></script>
 <script type="text/babel" src="tweaks-panel.jsx"></script>
@@ -642,6 +651,7 @@ const NAV = [
   { id: "alerts", label: "Alerts", group: "Monitoring", icon: "M12 3a6 6 0 00-6 6c0 5-2 6-2 6h16s-2-1-2-6a6 6 0 00-6-6zM10 20a2 2 0 004 0" },
   { id: "team", label: "Team", group: "People", icon: "M16 18v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 9a3 3 0 100-6 3 3 0 000 6zM21 18v-1a4 4 0 00-3-3.8M16 3.1A4 4 0 0117 11" },
   { id: "playbook", label: "Playbook", group: "Knowledge", icon: "M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2zM8 3v18M18 7h2M18 11h2" },
+  { id: "admin", label: "Admin", group: "Settings", icon: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 005 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 003 5l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V1a2 2 0 114 0v.1A1.7 1.7 0 0019 3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H23a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z", adminOnly: true },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -656,7 +666,8 @@ function Icon({ d }) {
 }
 
 function Sidebar({ route, navigate, alertCount, open, onClose }) {
-  const groups = [...new Set(NAV.map(n => n.group))];
+  const nav = NAV.filter(n => !n.adminOnly || (window.PerfAuth && window.PerfAuth.isAdmin()));
+  const groups = [...new Set(nav.map(n => n.group))];
   return (
     <>
     <div className={"nav-overlay" + (open ? " show" : "")} onClick={onClose} />
@@ -669,7 +680,7 @@ function Sidebar({ route, navigate, alertCount, open, onClose }) {
         {groups.map(g => (
           <React.Fragment key={g}>
             <div className="nav-label">{g}</div>
-            {NAV.filter(n => n.group === g).map(n => (
+            {nav.filter(n => n.group === g).map(n => (
               <button key={n.id} className={"nav-item " + (route.screen === n.id ? "on" : "")} onClick={() => navigate(n.id)}>
                 <Icon d={n.icon} />{n.label}
                 {n.id === "alerts" && alertCount > 0 && <span className="nbadge">{alertCount}</span>}
@@ -744,7 +755,7 @@ function App({ onReset, fileInfo, onRefresh }) {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
     const [screen, ...rest] = h.split("/");
     if (screen === "brand") return { screen: "brand", brand: rest.join("/") };
-    if (["overview", "drr", "forecast", "alerts", "team", "playbook"].includes(screen)) return { screen };
+    if (["overview", "drr", "forecast", "alerts", "team", "playbook", "admin"].includes(screen)) return { screen };
     return { screen: "overview" };
   };
   const [route, setRoute] = useState(parseHash());
@@ -778,6 +789,7 @@ function App({ onReset, fileInfo, onRefresh }) {
   else if (route.screen === "team") view = <Team navigate={navigate} />;
   else if (route.screen === "playbook") view = <Playbook navigate={navigate} />;
   else if (route.screen === "forecast") view = <Forecast navigate={navigate} />;
+  else if (route.screen === "admin") view = (window.PerfAuth && window.PerfAuth.isAdmin()) ? <AdminSettings /> : <Overview navigate={navigate} />;
   else view = <Overview navigate={navigate} />;
 
   return (
@@ -810,7 +822,9 @@ function App({ onReset, fileInfo, onRefresh }) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
               <span className="btn-label">{fileInfo && fileInfo.source === "gsheet" ? "Change source" : "New upload"}</span>
             </button>
-            <div className="user-av">RS</div>
+            {window.PerfAuth && window.PerfAuth.enabled() && window.PerfAuth.member
+              ? <button className="icon-btn" title={"Signed in as " + window.PerfAuth.member.email + " (" + window.PerfAuth.member.role + ") · sign out"} onClick={() => window.PerfAuth.signOut().then(() => location.reload())}><Avatar name={window.PerfAuth.member.email} /></button>
+              : <div className="user-av">RS</div>}
           </div>
         </header>
         <main className="content">{view}</main>
@@ -1089,7 +1103,132 @@ function boot(forceUpload) {
   showUpload();
 }
 
-boot();
+/* ---------------- Admin · access control ---------------- */
+function AdminSettings() {
+  const [members, setMembers] = useState([]);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const tref = window.useColResize();
+  const reload = () => { setLoading(true); window.PerfAuth.listMembers().then(m => { setMembers(m); setLoading(false); }).catch(e => { setErr(e.message); setLoading(false); }); };
+  useEffect(reload, []);
+  const add = () => { if (!email.trim()) return; setErr(null); window.PerfAuth.addMember(email, role).then(({ error }) => { if (error) setErr(error.message); else { setEmail(""); reload(); } }); };
+  const chg = (em, r) => window.PerfAuth.updateRole(em, r).then(({ error }) => { if (error) setErr(error.message); else reload(); });
+  const del = (em) => { if (!window.confirm("Remove access for " + em + "?")) return; window.PerfAuth.removeMember(em).then(reload); };
+  const me = (window.PerfAuth.member || {}).email;
+  return (
+    <div className="screen">
+      <div className="page-head"><div><div className="crumb">Settings</div><h1>Admin · access control</h1>
+        <p className="sub">Grant or revoke access by email and set roles. Changes apply on the member's next sign-in.</p></div></div>
+      <div className="card ca-card">
+        <div className="card-head"><h3>Add or update a member</h3></div>
+        <div className="ca-form">
+          <input className="tl-input" type="email" placeholder="email@company.com" value={email} onChange={e => setEmail(e.target.value)} style={{ minWidth: 240 }} />
+          <select value={role} onChange={e => setRole(e.target.value)}><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+          <button className="btn-primary" onClick={add}>Grant access</button>
+        </div>
+        {err && <div className="up-err" style={{ marginTop: 10 }}>{err}</div>}
+      </div>
+      <div className="card table-card">
+        <div className="card-head"><h3>Members</h3><span className="muted-sm">{members.length} with access</span></div>
+        <div className="table-wrap"><table className="data-table" ref={tref}>
+          <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+          <tbody>
+            {loading ? <tr><td colSpan="3" className="dim">Loading…</td></tr> :
+              members.map(m => (<tr key={m.email}>
+                <td className="brand-cell"><Avatar name={m.email} /><span className="brand-name">{m.email}</span>{m.email === me && <span className="region">you</span>}</td>
+                <td><select className="cur-select" value={m.role} onChange={e => chg(m.email, e.target.value)}><option value="viewer">Viewer</option><option value="admin">Admin</option></select></td>
+                <td className="n"><button className="tl-btn" onClick={() => del(m.email)}>Remove</button></td>
+              </tr>))}
+            {!loading && !members.length && <tr><td colSpan="3" className="dim">No members yet — add the first email above.</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+      <p className="muted-sm" style={{ marginTop: 8 }}>Admins manage access &amp; settings; viewers can view dashboards. Access is enforced by Supabase row-level security.</p>
+    </div>
+  );
+}
+
+/* ---------------- Auth gate (Supabase, optional) ---------------- */
+function AuthShell({ children, footer }) {
+  return (
+    <div className="uploader">
+      <div className="up-card">
+        <div className="up-brand"><img className="up-logo-icon" src="assets/logo-icon.png" alt="Performity" /></div>
+        {children}
+        <div className="up-catalys" style={{ marginTop: 18 }}><span>A</span><img className="catalys-wm" src="assets/catalys-wordmark.png" alt="Catalys" /><span>product · designed by RK</span></div>
+        {footer}
+      </div>
+    </div>
+  );
+}
+function LoginScreen({ onDone }) {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [mode, setMode] = useState("signin"); // signin | signup | magic
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+  const submit = () => {
+    setBusy(true); setErr(null); setMsg(null);
+    const done = (p) => p.then(({ error }) => {
+      if (error) { setErr(error.message); setBusy(false); return; }
+      if (mode === "magic") { setMsg("Check your email for the sign-in link."); setBusy(false); }
+      else if (mode === "signup") { setMsg("Account created. If email confirmation is on, confirm then sign in."); setBusy(false); setMode("signin"); }
+      else onDone();
+    }).catch(e => { setErr(e.message || String(e)); setBusy(false); });
+    if (mode === "magic") done(window.PerfAuth.signInMagic(email));
+    else if (mode === "signup") done(window.PerfAuth.signUp(email, pw));
+    else done(window.PerfAuth.signIn(email, pw));
+  };
+  return (
+    <AuthShell>
+      <div className="up-kicker">Welcome to the future of Agency Management</div>
+      <h1>{mode === "signup" ? "Create your account" : "Sign in to Performity"}</h1>
+      <p className="up-sub">{mode === "magic" ? "We'll email you a secure sign-in link." : "Access is restricted to authorized team members."}</p>
+      <div className="auth-form">
+        <input className="auth-input" type="email" placeholder="Work email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && mode === "magic" && submit()} />
+        {mode !== "magic" && <input className="auth-input" type="password" placeholder="Password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} />}
+        <button className="btn-primary auth-btn" onClick={submit} disabled={busy || !email || (mode !== "magic" && !pw)}>
+          {busy ? "…" : mode === "signup" ? "Create account" : mode === "magic" ? "Email me a link" : "Sign in"}
+        </button>
+      </div>
+      {msg && <div className="up-busy" style={{ color: "var(--good)" }}>{msg}</div>}
+      {err && <div className="up-err">{err}</div>}
+      <div className="up-foot">
+        {mode !== "signin" && <button className="up-link" onClick={() => { setMode("signin"); setErr(null); }}>Sign in</button>}
+        {mode !== "signup" && <button className="up-link" onClick={() => { setMode("signup"); setErr(null); }}>Create account</button>}
+        {mode !== "magic" && <button className="up-link" onClick={() => { setMode("magic"); setErr(null); }}>Email link</button>}
+      </div>
+    </AuthShell>
+  );
+}
+function NoAccess({ email }) {
+  return (
+    <AuthShell footer={<button className="up-link" style={{ marginTop: 14 }} onClick={() => window.PerfAuth.signOut().then(() => location.reload())}>Sign out</button>}>
+      <h1>Access pending</h1>
+      <p className="up-sub">You're signed in as <b>{email}</b>, but this address isn't on the access list yet. Ask a Performity admin to grant you access.</p>
+    </AuthShell>
+  );
+}
+
+const root2 = root; // alias
+async function start() {
+  if (!window.PerfAuth || !window.PerfAuth.init()) { boot(); return; } // auth disabled → open app
+  root.render(<Loading label="Checking access…" />);
+  try {
+    await window.PerfAuth.load();
+    if (!window.PerfAuth.session) { root.render(<LoginScreen onDone={start} />); return; }
+    if (!window.PerfAuth.member) { root.render(<NoAccess email={window.PerfAuth.session.user.email} />); return; }
+    boot(); // authorized
+  } catch (e) {
+    console.error("[auth] error", e);
+    root.render(<LoginScreen onDone={start} />);
+  }
+}
+
+start();
 </script>
 </body>
 </html>
