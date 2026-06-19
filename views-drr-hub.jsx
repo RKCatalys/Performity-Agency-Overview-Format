@@ -22,30 +22,62 @@ function DeltaPill({ d, fmt }) {
   const up = d.delta >= 0, good = d.costMetric ? !up : up;
   return <span className={"drr-d " + (good ? "good" : "bad")}>{up ? "▲" : "▼"} {Math.abs(d.pct * 100).toFixed(0)}%</span>;
 }
-function DeltaCard({ label, value, d, fmt }) {
+/* delta KPI card with a per-card comparison dropdown (DoD / WoW / MoM / same-date /
+   same-weekday / vs-target). Options are filtered to those the data can actually compute. */
+function DeltaCard({ label, field, fmt, cur, prevM, defMode }) {
+  const opts = window.DRRService.availableModes(field, cur, prevM);
+  const [mode, setMode] = useStateD(defMode || "dod");
+  const fallback = opts.length ? opts[0].key : "dod";
+  const active = opts.find(o => o.key === mode) ? mode : fallback;
+  const d = window.DRRService.compare(field, active, cur, prevM);
   const up = d && d.delta >= 0, good = d ? (d.costMetric ? !up : up) : true;
   return (
-    <div className="kpi">
-      <div className="kpi-top"><span className="kpi-label">{label}</span></div>
-      <div className="kpi-value">{value}</div>
+    <div className="kpi drr-kpi">
+      <div className="kpi-top">
+        <span className="kpi-label">{label}</span>
+        {opts.length > 0 && (
+          <select className="kpi-select" value={active} onChange={e => setMode(e.target.value)}>
+            {opts.map(o => <option key={o.key} value={o.key}>{o.short}</option>)}
+          </select>
+        )}
+      </div>
+      <div className="kpi-value">{d && d.cur != null ? fmt(d.cur) : "-"}</div>
       {d && d.delta != null && d.pct != null
-        ? <div className={"drr-d " + (good ? "good" : "bad")}>{up ? "▲" : "▼"} {Math.abs(d.pct * 100).toFixed(0)}% <span className="drr-prev">vs {fmt ? fmt(d.prev) : d.prev}</span></div>
-        : <div className="kpi-sub">latest day</div>}
+        ? <div className={"drr-d " + (good ? "good" : "bad")}>{up ? "▲" : "▼"} {Math.abs(d.pct * 100).toFixed(0)}% <span className="drr-prev">vs {fmt(d.prev)} · {d.note}</span></div>
+        : <div className="kpi-sub">{d && d.note ? d.note : "no comparison"}</div>}
     </div>
   );
 }
 
+function ProjInsight({ p, fmtM }) {
+  let text;
+  if (p.rem === 0) text = "Month complete — final revenue " + fmtM(p.expected) + ".";
+  else if (p.targetRev == null) text = "Trending to " + fmtM(p.expected) + " by month-end at " + fmtM(p.runRate) + "/day (recent pace).";
+  else if (p.neededDaily === 0) text = "Target already met — MTD " + fmtM(p.expected - p.runRate * p.rem) + " is past the " + fmtM(p.targetRev) + " monthly target. Projected " + fmtM(p.expected) + " by month-end at the current " + fmtM(p.runRate) + "/day pace.";
+  else if (p.willHit) text = "On track to beat target by " + pct(Math.abs(p.variancePct), 0) + " — projected " + fmtM(p.expected) + " vs " + fmtM(p.targetRev) + " target. Hold ≥" + fmtM(p.neededDaily) + "/day across the remaining " + p.rem + " days.";
+  else {
+    const liftTxt = p.lift != null ? " — a " + (p.lift >= 0 ? "+" : "") + Math.round(p.lift * 100) + "% lift over the recent " + fmtM(p.recentMean) + "/day pace" : "";
+    text = "Behind target by " + pct(Math.abs(p.variancePct), 0) + ". Needs " + fmtM(p.neededDaily) + "/day for the next " + p.rem + " days" + liftTxt + " to reach " + fmtM(p.targetRev) + ".";
+  }
+  return <div className={"proj-insight " + (p.willHit === false ? "warn" : p.willHit ? "good" : "")}>{text}</div>;
+}
+
 /* ---------------- DRR detail workspace ---------------- */
-function DRRWorkspace({ brand, parsed, onBack, navigate }) {
-  const sym = parsed.currency;
-  const M = drrMoney, t = parsed.totals, days = parsed.days;
-  const labels = days.map((d, i) => String(i + 1));
-  const fmtM = v => M(v, sym);
-  const cum = (field) => { let s = 0; return days.map(d => { s += d[field] || 0; return s; }); };
-  const cumGross = cum("gross");
-  const targetLine = parsed.targetRev ? labels.map((_, i) => parsed.targetRev * (i + 1) / parsed.monthDays) : null;
-  const dRev = window.DRRService.delta(days, "gross"), dSpend = window.DRRService.delta(days, "spend"), dRoas = window.DRRService.delta(days, "roas");
-  const dOrders = window.DRRService.delta(days, "orders"), dAov = window.DRRService.delta(days, "aov"), dCac = window.DRRService.delta(days, "cac");
+function DRRWorkspace({ brand, months, onBack, navigate }) {
+  const [mIdx, setMIdx] = useStateD(0);
+  const m = months[mIdx] || months[0];
+  const parsed = m.parsed;
+  const prevM = months[mIdx + 1] ? months[mIdx + 1].parsed : null;   // newest-first → next is previous calendar month
+  const sym = parsed.currency, t = parsed.totals, days = parsed.days;
+  const fmtM = v => drrMoney(v, sym);
+  const fmtX = v => v != null ? v.toFixed(2) + "×" : "-";
+  const labels = days.map((d, i) => String(d.dom || i + 1));
+  const ser = f => window.DRRService.seriesOf(days, f);
+  let s = 0; const cumGross = days.map(d => { s += d.gross || 0; return s; });
+  const targetLine = parsed.targetRev ? days.map((_, i) => parsed.targetRev * (i + 1) / parsed.monthDays) : null;
+  const targetRoas = parsed.targets && parsed.targets.roas;
+  const proj = window.DRRService.projectEOM(parsed);
+  const confCls = proj ? (proj.confidence >= 0.7 ? "good" : proj.confidence >= 0.5 ? "warn" : "bad") : "warn";
 
   return (
     <div className="screen">
@@ -54,8 +86,11 @@ function DRRWorkspace({ brand, parsed, onBack, navigate }) {
         <div className="brand-title-row">
           <div>
             <div className="brand-title"><span className="brand-dot lg" data-h={t.roas >= 2 ? "good" : t.roas >= 1 ? "warn" : "bad"} /><h1>{brand.name}</h1>
-              <Badge tone="accent">{parsed.monthLabel || "DRR"}</Badge></div>
-            <p className="sub">Daily run-rate · {parsed.daysElapsed} of {parsed.monthDays} days · last entry {parsed.days[parsed.days.length - 1].date}</p>
+              <select className="drr-month-sel" value={mIdx} onChange={e => setMIdx(+e.target.value)}>
+                {months.map((mm, i) => <option key={mm.key} value={i}>{mm.label}</option>)}
+              </select></div>
+            <p className="sub">Daily run-rate · {parsed.daysElapsed} of {parsed.monthDays} days · last entry {days[days.length - 1].date}
+              {months.length > 1 && <span> · {months.length} months on record</span>}</p>
           </div>
           <div className="drr-jump">
             <button className="tool-btn" onClick={() => navigate("overview")}>Overview</button>
@@ -66,53 +101,115 @@ function DRRWorkspace({ brand, parsed, onBack, navigate }) {
         </div>
       </div>
 
-      <div className="fc-sub">Latest day vs previous · delta engine</div>
+      <div className="fc-sub">Delta engine · pick a comparison per card{!prevM && <span className="muted-sm"> · cross-month options need a prior month</span>}</div>
       <div className="kpi-row seven">
-        <DeltaCard label="Revenue" value={fmtM(dRev && dRev.cur)} d={dRev} fmt={fmtM} />
-        <DeltaCard label="Spend" value={fmtM(dSpend && dSpend.cur)} d={dSpend} fmt={fmtM} />
-        <DeltaCard label="ROAS" value={dRoas && dRoas.cur != null ? dRoas.cur.toFixed(2) + "×" : "-"} d={dRoas} fmt={v => v != null ? v.toFixed(2) + "×" : "-"} />
-        <DeltaCard label="Orders" value={dOrders && dOrders.cur != null ? num(dOrders.cur) : "-"} d={dOrders} fmt={v => num(v)} />
-        <DeltaCard label="AOV" value={fmtM(dAov && dAov.cur)} d={dAov} fmt={fmtM} />
-        <DeltaCard label="CAC" value={fmtM(dCac && dCac.cur)} d={dCac} fmt={fmtM} />
-        <DeltaCard label="Returns" value={fmtM(window.DRRService.delta(days, "returns") && window.DRRService.delta(days, "returns").cur)} d={window.DRRService.delta(days, "returns")} fmt={fmtM} />
+        <DeltaCard label="Revenue" field="gross" fmt={fmtM} cur={parsed} prevM={prevM} />
+        <DeltaCard label="Spend" field="spend" fmt={fmtM} cur={parsed} prevM={prevM} />
+        <DeltaCard label="ROAS" field="roas" fmt={fmtX} cur={parsed} prevM={prevM} />
+        <DeltaCard label="Orders" field="orders" fmt={v => v != null ? num(v) : "-"} cur={parsed} prevM={prevM} />
+        <DeltaCard label="AOV" field="aov" fmt={fmtM} cur={parsed} prevM={prevM} />
+        <DeltaCard label="CAC" field="cac" fmt={fmtM} cur={parsed} prevM={prevM} />
+        <DeltaCard label="Returns" field="returns" fmt={fmtM} cur={parsed} prevM={prevM} />
       </div>
 
       <div className="fc-sub">Month to date</div>
-      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(5,minmax(0,1fr))" }}>
+      <div className="kpi-row" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))" }}>
         <div className="kpi"><div className="kpi-label">MTD Revenue</div><div className="kpi-value">{fmtM(t.gross)}</div><div className="kpi-sub">net {fmtM(t.net)}</div></div>
-        <div className="kpi"><div className="kpi-label">MTD Spend</div><div className="kpi-value">{fmtM(t.spend)}</div></div>
-        <div className="kpi"><div className="kpi-label">Blended ROAS</div><div className={"kpi-value " + roasHealth(t.roas)}>{roas(t.roas)}</div></div>
-        <div className="kpi"><div className="kpi-label">Projected EOM</div><div className="kpi-value">{fmtM(parsed.projGross)}</div><div className="kpi-sub">at current pace</div></div>
+        <div className="kpi"><div className="kpi-label">MTD Spend</div><div className="kpi-value">{fmtM(t.spend)}</div><div className="kpi-sub">meta {fmtM(days.reduce((a, x) => a + (x.metaSpend || 0), 0))} · google {fmtM(days.reduce((a, x) => a + (x.googleSpend || 0), 0))}</div></div>
+        <div className="kpi"><div className="kpi-label">Blended ROAS</div><div className={"kpi-value " + roasHealth(t.roas)}>{roas(t.roas)}</div><div className="kpi-sub">net {roas(t.netRoas)}</div></div>
         <div className="kpi"><div className="kpi-label">Target achievement</div><div className="kpi-value">{parsed.achievement != null ? pct(parsed.achievement, 0) : "-"}</div>
           {parsed.targetRev ? <div className="kpi-sub">of {fmtM(parsed.targetRev)}</div> : <div className="kpi-sub">no target set</div>}</div>
       </div>
       {parsed.achievement != null && <div className="drr-progress"><div className="drr-progress-fill" style={{ width: pct(Math.min(1, parsed.achievement), 0) }} /></div>}
 
-      <div className="grid-2">
-        <div className="card"><div className="card-head"><h3>Revenue &amp; spend</h3><span className="muted-sm">daily</span></div>
-          <ComboChart months={labels} bars={window.DRRService.seriesOf(days, "gross")} line={window.DRRService.seriesOf(days, "roas")} barFmt={fmtM} showPct={false} /></div>
-        <div className="card"><div className="card-head"><h3>ROAS trend</h3><span className="muted-sm">daily</span></div>
-          <LineMulti months={labels} series={[{ data: window.DRRService.seriesOf(days, "roas"), color: "var(--good)" }]} fmt={v => v.toFixed(1) + "×"} mode="spline" /></div>
-      </div>
-      <div className="grid-2">
+      {proj && (
+        <div className="card drr-proj">
+          <div className="card-head"><h3>End-of-month projection</h3><span className="muted-sm">trend-based · {proj.recentWindow}-day run rate</span></div>
+          <div className="drr-proj-grid">
+            <div className="proj-main">
+              <div className="proj-eyebrow">Expected EOM revenue</div>
+              <div className="proj-value">{fmtM(proj.expected)}</div>
+              <div className="proj-conf"><span className={"conf-dot " + confCls} /> {proj.confLabel} confidence</div>
+              <div className="conf-bar"><div className={"conf-fill " + confCls} style={{ width: pct(proj.confidence, 0) }} /></div>
+              {proj.targetRev != null && <div className={"proj-var " + (proj.willHit ? "good" : "bad")}>{proj.variance >= 0 ? "+" : ""}{fmtM(proj.variance)} vs target ({pct(proj.variancePct, 0)})</div>}
+            </div>
+            <div className="proj-scen">
+              <div className="ps worst"><span className="ps-l">Worst case</span><span className="ps-v">{fmtM(proj.worst)}</span></div>
+              <div className="ps exp"><span className="ps-l">Expected</span><span className="ps-v">{fmtM(proj.expected)}</span></div>
+              <div className="ps best"><span className="ps-l">Best case</span><span className="ps-v">{fmtM(proj.best)}</span></div>
+            </div>
+          </div>
+          <ProjInsight p={proj} fmtM={fmtM} />
+          <div className="proj-assume muted-sm">Assumes the last {proj.recentWindow} days' run rate ({fmtM(proj.recentMean)}/day) holds · {proj.daysElapsed} of {proj.monthDays} days done, {proj.rem} remaining · best/worst span ±1 std-dev of recent daily revenue.</div>
+        </div>
+      )}
+
+      <div className="drr-charts">
+        <div className="card"><div className="card-head"><h3>Revenue</h3><span className="muted-sm">gross vs net · daily</span></div>
+          <LineMulti months={labels} series={[{ data: ser("gross"), color: "var(--accent)" }, { data: ser("net"), color: "var(--violet)" }]} fmt={fmtM} fill={true} mode="spline" />
+          <ChartLegend items={[{ label: "Gross", color: "var(--accent)" }, { label: "Net", color: "var(--violet)" }]} /></div>
+
+        <div className="card"><div className="card-head"><h3>Ad spend split</h3><span className="muted-sm">meta vs google · daily</span></div>
+          <StackedBars labels={labels} series={[{ data: ser("metaSpend"), color: "var(--accent)", label: "Meta" }, { data: ser("googleSpend"), color: "var(--violet)", label: "Google" }]} fmt={fmtM} />
+          <ChartLegend items={[{ label: "Meta", color: "var(--accent)" }, { label: "Google", color: "var(--violet)" }]} /></div>
+
+        <div className="card"><div className="card-head"><h3>ROAS</h3><span className="muted-sm">gross vs net · daily</span></div>
+          <LineMulti months={labels} series={[{ data: ser("roas"), color: "var(--good)" }, { data: ser("netRoas"), color: "var(--muted)" }]} fmt={fmtX} mode="spline"
+            refs={[{ value: 1, label: "break-even", color: "var(--bad)" }].concat(targetRoas ? [{ value: targetRoas, label: "target", color: "var(--warn)" }] : [])} />
+          <ChartLegend items={[{ label: "Gross ROAS", color: "var(--good)" }, { label: "Net ROAS", color: "var(--muted)" }, { label: "Break-even", color: "var(--bad)", dash: true }].concat(targetRoas ? [{ label: "Target", color: "var(--warn)", dash: true }] : [])} /></div>
+
         <div className="card"><div className="card-head"><h3>Cumulative revenue vs target</h3><span className="muted-sm">MTD pace</span></div>
-          <LineMulti months={labels} series={targetLine ? [{ data: targetLine, color: "var(--muted)" }, { data: cumGross, color: "var(--accent)" }] : [{ data: cumGross, color: "var(--accent)" }]} fmt={fmtM} fill={true} />
-          {targetLine && <div className="muted-sm" style={{ marginTop: 6 }}><span style={{ color: "var(--muted)" }}>──</span> target pace · <span style={{ color: "var(--accent)" }}>──</span> actual</div>}</div>
-        <div className="card"><div className="card-head"><h3>Spend trend</h3><span className="muted-sm">meta + google</span></div>
-          <ComboChart months={labels} bars={window.DRRService.seriesOf(days, "spend")} line={days.map(() => null)} barFmt={fmtM} showPct={false} /></div>
+          <LineMulti months={labels} series={(targetLine ? [{ data: targetLine, color: "var(--muted)" }] : []).concat([{ data: cumGross, color: "var(--accent)" }])} fmt={fmtM} fill={true} />
+          <ChartLegend items={[{ label: "Actual", color: "var(--accent)" }].concat(targetLine ? [{ label: "Target pace", color: "var(--muted)", dash: true }] : [])} /></div>
+
+        <div className="card"><div className="card-head"><h3>Orders</h3><span className="muted-sm">daily</span></div>
+          <StackedBars labels={labels} series={[{ data: ser("orders"), color: "var(--review)", label: "Orders" }]} fmt={v => num(v)} /></div>
+
+        <div className="card"><div className="card-head"><h3>Unit economics</h3><span className="muted-sm">AOV vs CAC · daily</span></div>
+          <LineMulti months={labels} series={[{ data: ser("aov"), color: "var(--accent)" }, { data: ser("cac"), color: "var(--warn)" }]} fmt={fmtM} mode="spline" />
+          <ChartLegend items={[{ label: "AOV", color: "var(--accent)" }, { label: "CAC", color: "var(--warn)" }]} /></div>
       </div>
 
       <div className="card table-card">
-        <div className="card-head"><h3>Daily ledger</h3><span className="muted-sm">{days.length} days</span></div>
-        <div className="table-wrap"><table className="data-table">
-          <thead><tr><th>Date</th><th className="n">Spend</th><th className="n">Gross</th><th className="n">Returns</th><th className="n">Net</th><th className="n">ROAS</th><th className="n">Orders</th><th className="n">AOV</th><th className="n">CAC</th></tr></thead>
+        <div className="card-head"><h3>Daily ledger</h3><span className="muted-sm">{days.length} days · {m.label}</span></div>
+        <div className="drr-ledger-wrap"><table className="data-table drr-ledger">
+          <thead><tr><th className="stickcol">Date</th><th className="n">Meta</th><th className="n">Google</th><th className="n">Spend</th><th className="n">Gross</th><th className="n">Returns</th><th className="n">Net</th><th className="n">ROAS</th><th className="n">Net ROAS</th><th className="n">Orders</th><th className="n">AOV</th><th className="n">CAC</th></tr></thead>
           <tbody>{days.map((d, i) => <tr key={i}>
-            <td className="dim">{d.date}</td><td className="n mono">{fmtM(d.spend)}</td><td className="n mono">{fmtM(d.gross)}</td>
+            <td className="dim stickcol">{d.date}</td>
+            <td className="n mono dim">{fmtM(d.metaSpend)}</td><td className="n mono dim">{fmtM(d.googleSpend)}</td>
+            <td className="n mono">{fmtM(d.spend)}</td><td className="n mono">{fmtM(d.gross)}</td>
             <td className="n mono dim">{fmtM(d.returns)}</td><td className="n mono">{fmtM(d.net)}</td>
-            <td className="n"><RoasPill value={d.roas} /></td><td className="n mono">{d.orders != null ? num(d.orders) : "-"}</td>
+            <td className="n"><RoasPill value={d.roas} /></td><td className="n mono dim">{fmtX(d.netRoas)}</td>
+            <td className="n mono">{d.orders != null ? num(d.orders) : "-"}</td>
             <td className="n mono dim">{fmtM(d.aov)}</td><td className="n mono dim">{fmtM(d.cac)}</td></tr>)}</tbody>
         </table></div>
       </div>
+    </div>
+  );
+}
+
+/* loads the full workbook (all months) for a brand, then renders the workspace */
+function DRRWorkspaceLoader({ brand, fallbackParsed, onBack, navigate }) {
+  const [wb, setWb] = useStateD(null);
+  useEffectD(() => {
+    let alive = true;
+    window.DRRService.fetchWorkbook(brand).then(res => { if (alive) setWb(res); });
+    return () => { alive = false; };
+  }, [brand.id]);
+
+  if (!wb) return (
+    <div className="screen">
+      <div className="brand-head"><button className="back" onClick={onBack}>← All DRR</button>
+        <h1>{brand.name}</h1><p className="sub">Loading all months…</p></div>
+      <div className="drr-charts">{Array.from({ length: 4 }).map((_, i) => <div className="card skeleton" key={i} style={{ height: 220 }} />)}</div>
+    </div>
+  );
+  if (wb.ok) return <DRRWorkspace brand={brand} months={wb.months} onBack={onBack} navigate={navigate} />;
+  if (fallbackParsed) return <DRRWorkspace brand={brand} months={[{ key: "cur", label: fallbackParsed.monthLabel || "Current", parsed: fallbackParsed }]} onBack={onBack} navigate={navigate} />;
+  return (
+    <div className="screen">
+      <div className="brand-head"><button className="back" onClick={onBack}>← All DRR</button><h1>{brand.name}</h1></div>
+      <div className="empty">{wb.error}</div>
     </div>
   );
 }
@@ -136,8 +233,8 @@ function AllDRR({ navigate }) {
   }, []);
 
   if (selected) {
-    const rec = data[selected.id];
-    if (rec && rec.status === "ok") return <DRRWorkspace brand={selected} parsed={rec.parsed} onBack={() => setSelected(null)} navigate={navigate} />;
+    const rec = data[selected.id] || {};
+    return <DRRWorkspaceLoader brand={selected} fallbackParsed={rec.status === "ok" ? rec.parsed : null} onBack={() => setSelected(null)} navigate={navigate} />;
   }
 
   let cards = reg.map(b => ({ brand: b, rec: data[b.id] || { status: "loading" } }));

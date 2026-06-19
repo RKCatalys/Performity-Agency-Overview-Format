@@ -43,13 +43,33 @@
     if (/orders|leads/.test(t)) return "orders";
     if (/aov/.test(t)) return "aov";
     if (/^cac|cac$|cpl/.test(t)) return "cac";
-    if (/^date$|^day$/.test(t) || /date/.test(t)) return "date";
+    if (/date/.test(t)) return "date";   // note: weekday "DAY" column intentionally not mapped
     return null;
+  }
+  const SHORTM = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function parseDateStr(s) {
+    if (s instanceof Date) return isNaN(s) ? null : s;
+    s = String(s == null ? "" : s).trim(); if (!s) return null;
+    let m;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return new Date(+m[1], +m[2] - 1, +m[3]);
+    if ((m = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3,9})[-/ ](\d{2,4})/))) { const mi = SHORTM.findIndex(x => x.toLowerCase() === m[2].slice(0, 3).toLowerCase()); if (mi < 0) return null; let y = +m[3]; if (y < 100) y += 2000; return new Date(y, mi, +m[1]); }
+    if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/))) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
+    const d = new Date(s); return isNaN(d) ? null : d;
+  }
+  // parse a workbook tab name ("June26","Apr26","January26","Dec24") -> {monthIdx,year,label}
+  function parseMonthName(nm) {
+    const m = String(nm).trim().match(/^([A-Za-z]{3,9})['’]?\s*'?\s*(\d{2})$/);
+    if (!m) return null;
+    const name = m[1].toLowerCase();
+    let idx = MONTHS.findIndex(M => M.toLowerCase().slice(0, 3) === name.slice(0, 3));
+    if (idx < 0) return null;
+    const year = 2000 + (+m[2]);
+    return { monthIdx: idx, year, label: MONTHS[idx] + " '" + m[2] };
   }
   const TARGET_LABELS = { "target budget": "budget", "target revenue": "revRevenue", "target roas": "roas", "target gross": "revGross", "month days": "monthDays", "monthly target": "revRevenue" };
 
   const DATE_RE = /^\d{1,2}[-/ ][A-Za-z]{3,9}[-/ ]\d{2,4}$|^\d{4}-\d\d-\d\d|^\d{1,2}\/\d{1,2}\/\d{2,4}/;
-  const isDateCell = (v) => typeof v === "string" && DATE_RE.test(v.trim());
+  const isDateCell = (v) => (v instanceof Date && !isNaN(v)) || (typeof v === "string" && DATE_RE.test(v.trim()));
 
   // smart mapping engine: rows (2D) -> normalized DRR object.
   // (1) header-keyword detection; (2) position fallback keyed off the date column
@@ -80,7 +100,17 @@
       const key = TARGET_LABELS[norm(c)];
       if (key) { const v = numify(r[j + 1]); if (v != null) targets[key] = v; }
     }));
-    const monthLabel = (rows[1] && String(rows[1][0] || "").trim()) || (rows[0] && /\b\d{2}\b/.test(String(rows[0][0])) && String(rows[0][0])) || fallbackMonth;
+    // monthly target: a header row whose first cell ends in a 2-digit year (e.g. "June'26")
+    // carries the target revenue in the cell to its right.
+    if (targets.revRevenue == null) {
+      for (let i = 0; i <= hdr; i++) {
+        const r = rows[i] || [], c0 = norm(r[0]);
+        if (c0 && c0 !== "totals" && /\d{2}$/.test(c0) && /[a-z]/.test(c0)) {
+          const v = numify(r[1]); if (v != null && v > 1000) { targets.revRevenue = v; break; }
+        }
+      }
+    }
+    const monthLabel = fallbackMonth || (rows[1] && String(rows[1][0] || "").trim()) || (rows[0] && /\b\d{2}\b/.test(String(rows[0][0])) && String(rows[0][0])) || "DRR";
     // currency from a sample money cell
     let currency = currencyHint || "₹";
     if (!currencyHint) {
@@ -91,14 +121,18 @@
     const days = [];
     for (let i = hdr + 1; i < rows.length; i++) {
       const r = rows[i] || [];
-      const dateCell = String(r[colMap.date] == null ? "" : r[colMap.date]).trim();
+      const raw = r[colMap.date];
+      const dateCell = String(raw == null ? "" : raw).trim();
       if (!dateCell || /total/i.test(dateCell)) { if (days.length) break; else continue; }
-      if (!/\d/.test(dateCell)) continue;
+      if (!isDateCell(raw)) continue;
+      const dObj = parseDateStr(raw);
+      const disp = dObj ? dObj.getDate() + " " + SHORTM[dObj.getMonth()] : dateCell;
       const get = (f) => colMap[f] != null ? numify(r[colMap[f]]) : null;
       const spend = get("spend") != null ? get("spend") : ((get("metaSpend") || 0) + (get("googleSpend") || 0)) || null;
       const gross = get("gross"), net = get("net");
       const d = {
-        date: dateCell, spend, metaSpend: get("metaSpend"), googleSpend: get("googleSpend"),
+        date: disp, dateObj: dObj, dom: dObj ? dObj.getDate() : days.length + 1, dow: dObj ? dObj.getDay() : null,
+        spend, metaSpend: get("metaSpend"), googleSpend: get("googleSpend"),
         gross, returns: get("returns"), net: net != null ? net : gross,
         roas: get("grossRoas") != null ? get("grossRoas") : (get("roas") != null ? get("roas") : (spend ? (gross || 0) / spend : null)),
         netRoas: get("netRoas") != null ? get("netRoas") : (spend ? ((net != null ? net : gross) || 0) / spend : null),
@@ -107,6 +141,9 @@
       if (d.spend != null || d.gross != null) days.push(d);
       if (days.length >= 31) break;
     }
+    // trim trailing not-yet-filled days (templates pre-seed every date of the month
+    // with zero/blank metrics) so daysElapsed and projections reflect real data only
+    while (days.length && !days[days.length - 1].gross && !days[days.length - 1].spend) days.pop();
     if (!days.length) return null;
     // MTD totals
     const sum = (k) => days.reduce((a, x) => a + (x[k] || 0), 0);
@@ -118,7 +155,8 @@
       returns: sum("returns"),
     };
     const daysElapsed = days.length;
-    const monthDays = targets.monthDays || new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const fd = days[0].dateObj;
+    const monthDays = targets.monthDays || (fd ? new Date(fd.getFullYear(), fd.getMonth() + 1, 0).getDate() : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate());
     const projGross = daysElapsed ? tGross / daysElapsed * monthDays : null;
     const targetRev = targets.revRevenue || targets.revGross || (targets.budget && targets.roas ? targets.budget * targets.roas : null);
     const achievement = targetRev ? tGross / targetRev : (targets.budget ? tSpend / targets.budget : null);
@@ -188,6 +226,112 @@
   }
   function seriesOf(days, field) { return days.map(d => d[field]); }
 
+  function xlsxUrl(id) { return "https://docs.google.com/spreadsheets/d/" + id + "/export?format=xlsx"; }
+
+  // Fetch the WHOLE workbook (all month tabs) in one request. xlsx export keeps
+  // header rows (gviz strips them), so mapping is header-driven and reliable, and
+  // we get every historical month for switching + cross-month comparisons.
+  function fetchWorkbook(brand) {
+    const id = brand.id;
+    const ck = CACHE_PREFIX + "wb." + id;
+    return fetch(xlsxUrl(id)).then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error("HTTP " + r.status))).then(buf => {
+      const wb = XLSX.read(new Uint8Array(buf), { type: "array", cellDates: true });
+      const months = [];
+      wb.SheetNames.forEach(nm => {
+        const mi = parseMonthName(nm); if (!mi) return;
+        const ws = wb.Sheets[nm];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: true, defval: null });
+        const p = parseDRR(rows, mi.label, brand.currency);
+        if (p && p.days.length) months.push({ key: nm, label: mi.label, year: mi.year, monthIdx: mi.monthIdx, sortKey: mi.year * 12 + mi.monthIdx, parsed: p });
+      });
+      months.sort((a, b) => b.sortKey - a.sortKey);   // newest first
+      if (!months.length) return { ok: false, error: "No monthly tabs found in this sheet." };
+      return { ok: true, months };
+    }).catch(err => ({ ok: false, error: (err && err.message) || "Couldn't read this workbook — check it's shared “Anyone with the link → Viewer”." }));
+  }
+
+  // proper aggregate of a field over the first `count` days (ratios recomputed, not summed)
+  function aggField(days, field, count) {
+    const sl = count ? days.slice(0, count) : days;
+    const sum = k => sl.reduce((a, x) => a + (x[k] || 0), 0);
+    switch (field) {
+      case "roas": { const s = sum("spend"); return s ? sum("gross") / s : null; }
+      case "netRoas": { const s = sum("spend"); return s ? sum("net") / s : null; }
+      case "aov": { const o = sum("orders"); return o ? sum("gross") / o : null; }
+      case "cac": { const o = sum("orders"); return o ? sum("spend") / o : null; }
+      default: return sum(field);
+    }
+  }
+  function nearestWeekday(daysArr, dow, dom) {
+    let best = null, bd = 99;
+    daysArr.forEach(d => { if (d.dow === dow) { const dist = Math.abs((d.dom || 0) - dom); if (dist < bd) { bd = dist; best = d; } } });
+    return best;
+  }
+  const COMPARE_MODES = [
+    { key: "dod", short: "Day on day", note: "vs previous day" },
+    { key: "wow", short: "Week on week", note: "vs 7 days ago" },
+    { key: "mom", short: "Month on month", note: "MTD vs last month" },
+    { key: "sdpm", short: "Same date last mo.", note: "same date last month" },
+    { key: "swpm", short: "Same weekday last mo.", note: "same weekday last month" },
+    { key: "target", short: "vs Target", note: "vs target pace" },
+  ];
+  // unified comparison engine: returns {cur,prev,delta,pct,costMetric,note} or null
+  function compare(field, mode, cur, prevM) {
+    if (!cur || !cur.days || !cur.days.length) return null;
+    const days = cur.days, last = days[days.length - 1];
+    const cost = /cac|spend|cpc|cpl|returns/i.test(field);
+    const out = (c, p, note) => (c == null && p == null) ? null : ({
+      cur: c, prev: p, delta: (c != null && p != null) ? c - p : null,
+      pct: (c != null && p != null && p !== 0) ? (c - p) / Math.abs(p) : null, costMetric: cost, note,
+    });
+    if (mode === "dod") { const p = days[days.length - 2]; return out(last[field], p ? p[field] : null, "vs previous day"); }
+    if (mode === "wow") { const p = days[days.length - 8]; return p ? out(last[field], p[field], "vs 7 days ago") : null; }
+    if (mode === "mom") { if (!prevM) return null; return out(aggField(days, field), aggField(prevM.days, field, days.length), "MTD vs last month"); }
+    if (mode === "sdpm") { if (!prevM) return null; const p = prevM.days.find(d => d.dom === last.dom); return p ? out(last[field], p[field], "same date last month") : null; }
+    if (mode === "swpm") { if (!prevM || last.dow == null) return null; const p = nearestWeekday(prevM.days, last.dow, last.dom); return p ? out(last[field], p[field], "same weekday last month") : null; }
+    if (mode === "target") {
+      const n = days.length, M = cur.monthDays || 30;
+      if (field === "gross") { if (!cur.targetRev) return null; return out(aggField(days, "gross"), cur.targetRev * n / M, "MTD vs target pace"); }
+      if (field === "spend") { const b = cur.targets && cur.targets.budget; if (!b) return null; return out(aggField(days, "spend"), b * n / M, "MTD vs budget pace"); }
+      if (field === "roas") { const tr = cur.targets && cur.targets.roas; if (!tr) return null; return out(aggField(days, "roas"), tr, "vs target ROAS"); }
+      return null;
+    }
+    return null;
+  }
+  // which modes actually yield a value for a metric, given the data on hand
+  function availableModes(field, cur, prevM) {
+    return COMPARE_MODES.filter(m => compare(field, m.key, cur, prevM) != null);
+  }
+
+  // Trend-based End-of-Month projection with scenarios, confidence and an insight.
+  function projectEOM(parsed) {
+    const days = parsed.days, n = days.length, M = parsed.monthDays || 30, rem = Math.max(0, M - n);
+    const gross = days.map(d => d.gross).filter(v => v != null);
+    if (!gross.length) return null;
+    const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const mtd = parsed.totals.gross;
+    const recent = gross.slice(-7), recentMean = mean(recent), allMean = mean(gross);
+    const runRate = recentMean * 0.7 + allMean * 0.3;            // weight recent pace
+    const sd = recent.length > 1 ? Math.sqrt(mean(recent.map(v => (v - recentMean) ** 2))) : 0;
+    const expected = mtd + runRate * rem;
+    const best = mtd + (recentMean + sd) * rem;
+    const worst = mtd + Math.max(0, recentMean - sd) * rem;
+    const cv = recentMean ? sd / recentMean : 1;                 // coefficient of variation
+    const confidence = Math.max(0.3, Math.min(0.95, 1 - cv));
+    const confLabel = confidence >= 0.7 ? "High" : confidence >= 0.5 ? "Medium" : "Low";
+    const targetRev = parsed.targetRev;
+    const variance = targetRev != null ? expected - targetRev : null;
+    const variancePct = (targetRev) ? variance / targetRev : null;
+    const neededDaily = (targetRev && rem) ? Math.max(0, (targetRev - mtd) / rem) : null;
+    const lift = (neededDaily != null && recentMean) ? (neededDaily - recentMean) / recentMean : null;
+    const willHit = targetRev != null ? expected >= targetRev : null;
+    return {
+      expected, best, worst, confidence, confLabel, runRate, recentMean, rem, daysElapsed: n, monthDays: M,
+      targetRev, variance, variancePct, neededDaily, lift, willHit,
+      recentWindow: recent.length,
+    };
+  }
+
   // card summary
   function summaryOf(parsed) {
     if (!parsed) return null;
@@ -201,5 +345,5 @@
     };
   }
 
-  window.DRRService = { registry, fetchBrand, summaryOf, delta, seriesOf, pool, parseDRR, numify };
+  window.DRRService = { registry, fetchBrand, fetchWorkbook, summaryOf, delta, seriesOf, pool, parseDRR, numify, compare, availableModes, COMPARE_MODES, aggField, projectEOM };
 })();

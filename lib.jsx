@@ -168,12 +168,14 @@ function ComboChart({ months, bars, line, w = 720, h = 260, barLabel, lineLabel,
   );
 }
 
-function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false, mode = "linear", tip, trend = false }) {
+function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = false, mode = "linear", tip, trend = false, refs = [] }) {
   const padL = 56, padR = 16, padT = 16, padB = 28;
   const iw = w - padL - padR, ih = h - padT - padB;
-  const all = series.flatMap(s => s.data.filter(v => v != null));
+  const all = series.flatMap(s => s.data.filter(v => v != null)).concat(refs.map(r => r.value).filter(v => v != null));
   const max = Math.max(...all, 1) * 1.1, min = 0;
   const n = months.length;
+  const lblStep = n <= 16 ? 1 : Math.ceil(n / 12);
+  const showLbl = i => i === 0 || i === n - 1 || i % lblStep === 0;
   const x = i => n > 1 ? padL + (iw / (n - 1)) * i : padL + iw / 2;
   const y = v => padT + ih - ((v - min) / (max - min)) * ih;
   const ticks = 4;
@@ -209,7 +211,13 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = fals
         return <g key={i}><line x1={padL} y1={yy} x2={w - padR} y2={yy} stroke="var(--border)" />
           <text x={padL - 8} y={yy + 3} textAnchor="end" className="ax">{fmt(max / ticks * i)}</text></g>;
       })}
-      {months.map((m, i) => <text key={i} x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>)}
+      {refs.map((r, i) => r.value != null && (
+        <g key={"ref" + i}>
+          <line x1={padL} y1={y(r.value)} x2={w - padR} y2={y(r.value)} stroke={r.color || "var(--muted)"} strokeWidth="1.4" strokeDasharray="5 4" opacity="0.85" />
+          {r.label && <text x={w - padR} y={y(r.value) - 4} textAnchor="end" className="ax" style={{ fill: r.color || "var(--muted)", fontWeight: 700 }}>{r.label}</text>}
+        </g>
+      ))}
+      {months.map((m, i) => showLbl(i) && <text key={i} x={x(i)} y={h - 9} textAnchor="middle" className="ax">{m}</text>)}
       {series.map((s, si) => {
         const pts = s.data.map((v, i) => v == null ? null : { x: x(i), y: y(v) }).filter(Boolean);
         const path = buildPath(pts);
@@ -233,6 +241,45 @@ function LineMulti({ months, series, w = 720, h = 240, fmt = (v)=>v, fill = fals
       })()}
     </svg>
   );
+}
+
+// Stacked vertical bars. series: [{data:[...], color, label}]; one bar per x slot.
+function StackedBars({ labels, series, w = 720, h = 230, fmt = (v) => v }) {
+  const padL = 52, padR = 12, padT = 14, padB = 26, iw = w - padL - padR, ih = h - padT - padB;
+  const n = labels.length;
+  const totals = labels.map((_, i) => series.reduce((a, s) => a + (s.data[i] || 0), 0));
+  const max = Math.max(...totals, 1);
+  const slot = iw / n, bw = Math.min(22, slot * 0.62);
+  const x = i => padL + slot * i + slot / 2, yh = v => (v / max) * ih;
+  const ticks = 4, lblStep = n <= 16 ? 1 : Math.ceil(n / 12);
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      {Array.from({ length: ticks + 1 }).map((_, i) => {
+        const yy = padT + ih - (ih / ticks) * i;
+        return <g key={i}><line x1={padL} y1={yy} x2={w - padR} y2={yy} stroke="var(--border)" />
+          <text x={padL - 8} y={yy + 3} textAnchor="end" className="ax">{fmt(max / ticks * i)}</text></g>;
+      })}
+      {labels.map((m, i) => {
+        let acc = 0;
+        return <g key={i}>
+          {series.map((s, si) => {
+            const v = s.data[i] || 0, hh = yh(v), yy = padT + ih - yh(acc) - hh; acc += v;
+            return <rect key={si} x={x(i) - bw / 2} y={yy} width={bw} height={Math.max(0, hh)} fill={s.color} opacity="0.9"
+              rx={si === series.length - 1 ? 3 : 0}><title>{m + " · " + s.label + " " + fmt(v)}</title></rect>;
+          })}
+          {(i === 0 || i === n - 1 || i % lblStep === 0) && <text x={x(i)} y={h - 8} textAnchor="middle" className="ax">{m}</text>}
+        </g>;
+      })}
+    </svg>
+  );
+}
+// Inline legend chips (HTML, sits below a chart so nothing overlaps the plot)
+function ChartLegend({ items }) {
+  return <div className="chart-legend">{items.map((it, i) =>
+    <span key={i} className="cl-item">
+      <span className="cl-dot" style={it.dash
+        ? { width: 14, height: 0, borderTop: "2px dashed " + it.color, borderRadius: 0 }
+        : { background: it.color }} />{it.label}</span>)}</div>;
 }
 
 // Horizontal bar chart (ranked). items: [{label, value, color?}]
@@ -373,4 +420,4 @@ function useColResize() {
 Object.assign(window, { metricFmt, isHeadline,
   inr, inrFull, num, roas, pct, delta, MONTHS, roasHealth,
   CURRENCIES, curState, applyCurrency, useColResize, sevCls,
-  Sparkline, ComboChart, LineMulti, HBars, Funnel, Donut, Delta, Badge, Avatar });
+  Sparkline, ComboChart, LineMulti, HBars, Funnel, Donut, Delta, Badge, Avatar, StackedBars, ChartLegend });
