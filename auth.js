@@ -59,6 +59,19 @@
   function updateRole(email, role) { return client.from("members").update({ role }).eq("email", email.toLowerCase()); }
   function removeMember(email) { return client.from("members").delete().eq("email", email.toLowerCase()); }
 
+  // ---- DRR data-source registry (shared, admin-managed) ----
+  async function listSheets() {
+    const { data, error } = await client.from("drr_sheets").select("sheet_id,name,currency,removed").order("name");
+    if (error) throw error; return data || [];
+  }
+  function saveSheet(s) {
+    return client.from("drr_sheets").upsert({
+      sheet_id: s.sheet_id, name: s.name, currency: s.currency || null,
+      removed: !!s.removed, created_by: (member && member.email) || null,
+    }, { onConflict: "sheet_id" });
+  }
+  function deleteSheet(sheet_id) { return client.from("drr_sheets").delete().eq("sheet_id", sheet_id); }
+
   window.PerfAuth = {
     init, load,
     get session() { return session; },
@@ -67,5 +80,6 @@
     isAdmin: () => !!(member && member.role === "admin"),
     signIn, signUp, signInMagic, resetPassword, signOut,
     listMembers, addMember, updateRole, removeMember,
+    listSheets, saveSheet, deleteSheet,
   };
 })();

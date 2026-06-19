@@ -7,7 +7,28 @@
   const TTL = 30 * 60 * 1000;
   const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-  function registry() { return (window.PERFORMITY && window.PERFORMITY.drrSheets) || []; }
+  // runtime registry = built-in defaults (app-config) merged with shared overrides
+  // (added/hidden brands stored in Supabase, loaded at boot via setOverrides).
+  let _overrides = [];
+  function setOverrides(list) { _overrides = Array.isArray(list) ? list : []; }
+  function getOverrides() { return _overrides.slice(); }
+  function parseSheetId(s) {
+    s = String(s == null ? "" : s).trim(); if (!s) return null;
+    const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]{20,})/) || s.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+    if (m) return m[1];
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(s)) return s;   // already a bare id
+    return null;
+  }
+  function registry() {
+    const base = (window.PERFORMITY && window.PERFORMITY.drrSheets) || [];
+    const byId = new Map(base.map(b => [b.id, Object.assign({ source: "built-in" }, b)]));
+    _overrides.forEach(o => {
+      const id = o.sheet_id || o.id; if (!id) return;
+      if (o.removed) { byId.delete(id); }
+      else { const e = { name: o.name, id: id, source: "custom" }; if (o.currency) e.currency = o.currency; byId.set(id, e); }
+    });
+    return Array.from(byId.values());
+  }
 
   function monthCandidates(d) {
     const full = MONTHS[d.getMonth()], abbr = full.slice(0, 3), yy = String(d.getFullYear()).slice(2);
@@ -345,5 +366,5 @@
     };
   }
 
-  window.DRRService = { registry, fetchBrand, fetchWorkbook, summaryOf, delta, seriesOf, pool, parseDRR, numify, compare, availableModes, COMPARE_MODES, aggField, projectEOM };
+  window.DRRService = { registry, setOverrides, getOverrides, parseSheetId, fetchBrand, fetchWorkbook, summaryOf, delta, seriesOf, pool, parseDRR, numify, compare, availableModes, COMPARE_MODES, aggField, projectEOM };
 })();

@@ -637,6 +637,14 @@ body[data-theme="dark"] .up-card{background:rgba(21,28,44,.74);}
   .drr-charts{grid-template-columns:1fr;}
   .drr-proj-grid{grid-template-columns:1fr;}
 }
+/* ---- Data sources screen ---- */
+.ds-row{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+.ds-badge{font-size:10px; font-weight:700; padding:2px 9px; border-radius:6px; white-space:nowrap;}
+.ds-badge.built{background:var(--accent-soft); color:var(--accent);}
+.ds-badge.master{background:var(--violet); color:#fff;}
+.ds-badge.custom{background:var(--good-soft); color:var(--good);}
+.ds-link{color:var(--accent); font-weight:600; font-size:13px; text-decoration:none;}
+.ds-link:hover{text-decoration:underline;}
 
 /* ---- Upload screen ---- */
 .uploader{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; background:radial-gradient(1100px 560px at 50% -15%, #efeaff 0%, #e9f4fb 35%, var(--bg) 70%);}
@@ -773,6 +781,7 @@ const NAV = [
   { id: "alerts", label: "Alerts", group: "Monitoring", icon: "M12 3a6 6 0 00-6 6c0 5-2 6-2 6h16s-2-1-2-6a6 6 0 00-6-6zM10 20a2 2 0 004 0" },
   { id: "team", label: "Team", group: "People", icon: "M16 18v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 9a3 3 0 100-6 3 3 0 000 6zM21 18v-1a4 4 0 00-3-3.8M16 3.1A4 4 0 0117 11" },
   { id: "playbook", label: "Playbook", group: "Knowledge", icon: "M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2zM8 3v18M18 7h2M18 11h2" },
+  { id: "sources", label: "Data sources", group: "Settings", icon: "M12 3c-4.4 0-8 1.3-8 3s3.6 3 8 3 8-1.3 8-3-3.6-3-8-3zM4 9v5c0 1.7 3.6 3 8 3s8-1.3 8-3V9M4 14v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5", adminOnly: true },
   { id: "admin", label: "Admin", group: "Settings", icon: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 005 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 003 5l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V1a2 2 0 114 0v.1A1.7 1.7 0 0019 3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H23a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z", adminOnly: true },
 ];
 
@@ -877,7 +886,7 @@ function App({ onReset, fileInfo, onRefresh }) {
     const h = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
     const [screen, ...rest] = h.split("/");
     if (screen === "brand") return { screen: "brand", brand: rest.join("/") };
-    if (["overview", "drr", "alldrr", "forecast", "alerts", "team", "playbook", "admin"].includes(screen)) return { screen };
+    if (["overview", "drr", "alldrr", "forecast", "alerts", "team", "playbook", "admin", "sources"].includes(screen)) return { screen };
     return { screen: "overview" };
   };
   const [route, setRoute] = useState(parseHash());
@@ -913,6 +922,7 @@ function App({ onReset, fileInfo, onRefresh }) {
   else if (route.screen === "forecast") view = <Forecast navigate={navigate} />;
   else if (route.screen === "alldrr") view = <AllDRR navigate={navigate} />;
   else if (route.screen === "admin") view = (window.PerfAuth && window.PerfAuth.isAdmin()) ? <AdminSettings /> : <Overview navigate={navigate} />;
+  else if (route.screen === "sources") view = (window.PerfAuth && window.PerfAuth.isAdmin()) ? <DataSources /> : <Overview navigate={navigate} />;
   else view = <Overview navigate={navigate} />;
 
   return (
@@ -1274,6 +1284,97 @@ function AdminSettings() {
   );
 }
 
+/* ---------------- Data sources (admin: manage linked sheets) ---------------- */
+function DataSources() {
+  const cfg = (window.PERFORMITY && window.PERFORMITY.drrSheets) || [];
+  const [rows, setRows] = useState([]);        // supabase override rows
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [link, setLink] = useState("");
+  const [name, setName] = useState("");
+  const [cur, setCur] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => {
+    setLoading(true);
+    window.PerfAuth.listSheets().then(r => { setRows(r); window.DRRService.setOverrides(r); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  };
+  useEffect(reload, []);
+
+  const ovById = {}; rows.forEach(r => ovById[r.sheet_id] = r);
+  const builtins = cfg.map(b => ({ name: b.name, id: b.id, currency: b.currency, source: "built-in", hidden: !!(ovById[b.id] && ovById[b.id].removed) }));
+  const customs = rows.filter(r => !r.removed && !cfg.some(b => b.id === r.sheet_id)).map(r => ({ name: r.name, id: r.sheet_id, currency: r.currency, source: "custom" }));
+  const all = builtins.concat(customs);
+  const linkOf = id => "https://docs.google.com/spreadsheets/d/" + id + "/edit";
+
+  const add = () => {
+    setErr(null);
+    const id = window.DRRService.parseSheetId(link);
+    if (!id) { setErr("That doesn't look like a Google Sheets link or ID."); return; }
+    if (!name.trim()) { setErr("Give the brand a name."); return; }
+    if (all.some(x => x.id === id)) { setErr("That sheet is already linked."); return; }
+    setBusy(true);
+    window.PerfAuth.saveSheet({ sheet_id: id, name: name.trim(), currency: cur.trim() || null, removed: false })
+      .then(({ error }) => { setBusy(false); if (error) setErr(error.message); else { setLink(""); setName(""); setCur(""); reload(); } });
+  };
+  const hide = (b) => { if (!window.confirm("Hide " + b.name + " from All DRR?")) return; window.PerfAuth.saveSheet({ sheet_id: b.id, name: b.name, currency: b.currency, removed: true }).then(reload); };
+  const restore = (b) => window.PerfAuth.saveSheet({ sheet_id: b.id, name: b.name, currency: b.currency, removed: false }).then(reload);
+  const remove = (b) => { if (!window.confirm("Permanently remove " + b.name + "? This deletes it for everyone.")) return; window.PerfAuth.deleteSheet(b.id).then(reload); };
+
+  return (
+    <div className="screen">
+      <div className="page-head"><div><div className="crumb">Settings</div><h1>Data sources</h1>
+        <p className="sub">Every Google Sheet powering Performity. Add a brand DRR by pasting its link — it's saved to Supabase and shared with everyone instantly.</p></div></div>
+
+      <div className="card">
+        <div className="card-head"><h3>Master overview sheet</h3><span className="muted-sm">single source for Overview · Insights · Forecast</span></div>
+        <div className="ds-row">
+          <span className="ds-badge master">Master</span>
+          {SHEET_ID ? <a className="ds-link" href={linkOf(SHEET_ID)} target="_blank" rel="noopener">Open master sheet ↗</a> : <span className="dim">Not configured</span>}
+          <span className="muted-sm">New brands added here are auto-detected — no setup needed.</span>
+        </div>
+      </div>
+
+      <div className="card ca-card">
+        <div className="card-head"><h3>Add a brand DRR</h3></div>
+        <div className="ca-form">
+          <input className="tl-input" placeholder="Paste Google Sheets link" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} style={{ minWidth: 280, flex: 1 }} />
+          <input className="tl-input" placeholder="Brand name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} style={{ minWidth: 150 }} />
+          <input className="tl-input" placeholder="₹ / $ (optional)" value={cur} onChange={e => setCur(e.target.value)} style={{ width: 120 }} />
+          <button className="btn-primary" onClick={add} disabled={busy}>{busy ? "…" : "Add sheet"}</button>
+        </div>
+        {err && <div className="up-err" style={{ marginTop: 10 }}>{err}</div>}
+        <p className="muted-sm" style={{ marginTop: 8 }}>The sheet must be shared "Anyone with the link → Viewer" and use the same daily DRR template. It appears in All DRR right away.</p>
+      </div>
+
+      <div className="card table-card">
+        <div className="card-head"><h3>Linked brand DRRs</h3><span className="muted-sm">{all.filter(x => !x.hidden).length} active · {customs.length} custom</span></div>
+        <div className="table-wrap"><table className="data-table">
+          <thead><tr><th>Brand</th><th>Source</th><th>Link</th><th></th></tr></thead>
+          <tbody>
+            {loading ? <tr><td colSpan="4" className="dim">Loading…</td></tr> :
+              all.map(b => (
+                <tr key={b.id} style={b.hidden ? { opacity: .5 } : null}>
+                  <td className="brand-cell"><span className="brand-name">{b.name}</span>{b.currency && <span className="region">{b.currency}</span>}{b.hidden && <span className="region">hidden</span>}</td>
+                  <td><span className={"ds-badge " + (b.source === "custom" ? "custom" : "built")}>{b.source === "custom" ? "Custom" : "Built-in"}</span></td>
+                  <td><a className="ds-link" href={linkOf(b.id)} target="_blank" rel="noopener">Open ↗</a></td>
+                  <td className="n">
+                    {b.source === "custom"
+                      ? <button className="tl-btn" onClick={() => remove(b)}>Remove</button>
+                      : b.hidden ? <button className="tl-btn" onClick={() => restore(b)}>Restore</button>
+                        : <button className="tl-btn" onClick={() => hide(b)}>Hide</button>}
+                  </td>
+                </tr>))}
+            {!loading && !all.length && <tr><td colSpan="4" className="dim">No brand DRRs linked yet.</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+      <p className="muted-sm" style={{ marginTop: 8 }}>Saved to Supabase, shared with everyone, enforced by row-level security (admins only). Built-in brands can be hidden/restored; custom brands removed permanently.</p>
+    </div>
+  );
+}
+
 /* ---------------- Auth gate (Supabase, optional) ---------------- */
 // split auth layout: mascot beside (desktop) / above (mobile) the form
 function AuthShell({ mascotState, children }) {
@@ -1367,6 +1468,15 @@ function NoAccess({ email }) {
 }
 
 const root2 = root; // alias
+// load the shared DRR registry overrides (added/hidden brands) before booting
+async function loadDrrOverrides() {
+  try {
+    if (window.PerfAuth && window.PerfAuth.enabled() && window.DRRService) {
+      const rows = await window.PerfAuth.listSheets();
+      window.DRRService.setOverrides(rows);
+    }
+  } catch (e) { /* table may not exist yet → built-in defaults only */ }
+}
 async function start() {
   if (!window.PerfAuth || !window.PerfAuth.init()) { boot(); return; } // auth disabled → open app
   root.render(<Loading label="Checking access…" />);
@@ -1374,6 +1484,7 @@ async function start() {
     await window.PerfAuth.load();
     if (!window.PerfAuth.session) { root.render(<LoginScreen onDone={start} />); return; }
     if (!window.PerfAuth.member) { root.render(<NoAccess email={window.PerfAuth.session.user.email} />); return; }
+    await loadDrrOverrides();
     boot(); // authorized
   } catch (e) {
     console.error("[auth] error", e);

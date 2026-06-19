@@ -52,6 +52,32 @@ insert into public.members (email, role) values ('rakesh.s@catalys.co', 'admin')
 on conflict (email) do update set role = 'admin';
 ```
 
+## 2b. Create the shared DRR data-source table (for the "Data sources" admin screen)
+Supabase → **SQL Editor** → run this (reuses `public.is_admin()` from step 2):
+
+```sql
+create table if not exists public.drr_sheets (
+  sheet_id   text primary key,
+  name       text not null,
+  currency   text,
+  removed    boolean not null default false,
+  created_by text,
+  created_at timestamptz default now()
+);
+alter table public.drr_sheets enable row level security;
+
+-- any signed-in user can read the registry (the app needs it to render All DRR)
+create policy "read drr_sheets" on public.drr_sheets
+  for select to authenticated using (true);
+-- only admins can add / hide / remove sheets
+create policy "admins write drr_sheets" on public.drr_sheets
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+```
+
+The 20 built-in brand DRRs stay in `app-config.js`; this table only stores brands an
+admin **adds** at runtime (and tombstones for built-ins an admin **hides**). Until you run
+this SQL, the app simply shows the built-in list (Add/Hide will error gracefully).
+
 ## 3. Auth settings
 Supabase → **Authentication → Providers → Email**: keep Email enabled.
 - For quick password login, you can turn **Confirm email** off (Authentication → Settings).

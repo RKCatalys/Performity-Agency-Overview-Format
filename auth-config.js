@@ -8,5 +8,5 @@ window.PERFORMITY_AUTH = {
   url: "https://yxxqjvnireflmwfiqxfv.supabase.co",
   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4eHFqdm5pcmVmbG13ZmlxeGZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3ODk0MjcsImV4cCI6MjA5NzM2NTQyN30.Mk4aO24H06NJKqNG7Z6uOXMbAORVcg9GwsCe-KpOnu4",
   // these emails become admins automatically on first login (bootstrap)
-  adminEmails: ["rakesh.s@catalys.co"],
+  adminEmails: ["rakesh.s@catalys.co", "arpit@catalys.co"],
 };
