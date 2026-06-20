@@ -208,81 +208,119 @@ window.buildModel = function () {
           action: good ? `Promote the bundles/upsells that are working.` : `Test bundles, upsells and free-ship thresholds.` });
       }
     }
-    // Conversion rate (Meta funnel: orders / clicks)
-    const clC = chMo(b.key, "meta", "Clicks", c), orC = chMo(b.key, "meta", "Orders", c), clP = chMo(b.key, "meta", "Clicks", p), orP = chMo(b.key, "meta", "Orders", p);
-    const cvrC = clC ? orC / clC : null, cvrP = clP ? orP / clP : null, cvrCh = pctc(cvrC, cvrP);
-    if (cvrCh != null && Math.abs(cvrCh) >= 0.2) {
-      const good = cvrCh > 0;
-      push({ ...ctx, metric: "CVR", dir: good ? "up" : "down", good, sev: good ? "opportunity" : "warn", pct: cvrCh, metricStr: pctTxt(cvrCh), value: (cvrC * 100).toFixed(2) + "%",
-        msg: good ? `Meta conversion rate up ${pctTxt(cvrCh)} · funnel converting better.` : `Meta conversion rate fell ${pctTxt(cvrCh)} · funnel drop-off worsening.`,
-        action: good ? `Push more traffic to the converting offers/LPs.` : `Audit ATC→checkout drop-off; test offer, urgency and the PDP/landing page.` });
-    }
-    // ---- Funnel diagnostics · stage-level root cause + cross-channel attribution ----
-    // Walks the ad funnel (CTR → landing-page-view rate → add-to-cart → checkout →
-    // purchase) per channel, finds the EARLIEST broken stage (downstream stages are
-    // usually just consequences), checks it against an industry-standard guideline, and
-    // reasons about scope: a stage that drops on MULTIPLE channels is site/platform-side
-    // (shared store), a stage that drops on one channel is that channel's setup.
+    // ---- Channel-metric diagnostics · benchmark + channel logic + cross-channel scope ----
+    // Same reasoning depth as the LPV example, applied to EVERY tracked metric. Each metric
+    // carries an industry-standard guideline (channel-aware where Meta vs Google differ), a
+    // direction (higher- or lower-is-better), a root-cause explanation and a what-to-check
+    // list. The funnel metrics (CTR→LPV→ATC→IC→Purchase) are evaluated as a cascade so the
+    // EARLIEST broken stage is reported as the root; cost/efficiency metrics emit on their
+    // own. Scope: bad on ≥2 channels = systemic (site/market/offer-side); one of several =
+    // channel-specific; site-stage metrics (LPV/ATC/IC/Purchase) read site-side by nature.
     (() => {
-      const FUNNEL = [
-        { key: "CTR", label: "CTR", bench: 0.008, absBench: true, fmt: v => (v * 100).toFixed(2) + "%", stage: "creative",
-          cause: "ad creative or audience relevance (fewer people are clicking the ad)",
-          checks: ["Refresh ad creative, hooks & formats", "Refresh or tighten audience targeting", "Check frequency / creative fatigue"] },
-        { key: "LPV CVR", label: "Landing-page view rate", bench: 0.80, absBench: true, fmt: v => (v * 100).toFixed(1) + "%", stage: "website",
-          cause: "a site or landing-page problem where many clicks never load the page",
-          checks: ["Run a PageSpeed / load-time test on the exact ad landing URL", "Open the landing URL on mobile and look for slow load, redirects, 404s or server errors", "Confirm the Landing-Page-View / pixel event is still firing (tracking not broken)", "Check any recent theme / app / redirect change on the store"] },
-        { key: "ATC CVR", label: "Add-to-cart rate", bench: 0.03, fmt: v => (v * 100).toFixed(1) + "%", stage: "product page",
-          cause: "the product page or offer (visitors land but don’t add to cart)",
-          checks: ["Review the PDP: pricing, imagery, reviews, value proposition", "Test offer, urgency & bundles", "Check stock availability and sizing/spec clarity"] },
-        { key: "IC CVR", label: "Checkout-initiation rate", bench: 0.30, fmt: v => (v * 100).toFixed(1) + "%", stage: "cart",
-          cause: "cart friction (carts aren’t moving to checkout)",
-          checks: ["Show shipping cost early; remove cart surprises", "Add trust signals & a clear checkout CTA", "Test a faster / guest checkout"] },
-        { key: "Purchase CVR", label: "Purchase rate", bench: 0.02, fmt: v => (v * 100).toFixed(1) + "%", stage: "checkout",
-          cause: "checkout friction (sessions reach checkout but don’t convert)",
-          checks: ["Audit checkout for payment failures / errors", "Offer more payment options (incl. COD where relevant)", "Remove unexpected last-step costs"] },
-      ];
       const CHL = { meta: "Meta", google: "Google", other: "Other" };
       const chans = ["meta", "google", "other"];
-      const DROP = 0.15;
-      const stages = FUNNEL.map(st => {
+      const pf = v => (v * 100).toFixed(1) + "%", p2 = v => (v * 100).toFixed(2) + "%", xf = v => roasFmt(v), mf = v => window.inr(v);
+      // metric knowledge base
+      const KB = {
+        CTR: { label: "CTR", unit: "pct", fmt: p2, better: "high", funnel: 0,
+          bench: { meta: { good: .010, poor: .007 }, google: { good: .030, poor: .015 }, other: { good: .006, poor: .003 } },
+          cause: { meta: "ad creative or audience relevance (people aren’t clicking the ad)", google: "ad copy, keywords or Quality Score / weak search intent", other: "creative or placement relevance" },
+          checks: { meta: ["Refresh creative, hooks & formats", "Refresh or tighten audiences", "Watch frequency / creative fatigue"], google: ["Review ad copy & extensions", "Prune low-CTR keywords; add negatives", "Improve Quality Score / landing relevance"], other: ["Refresh creative & placements"] } },
+        "LPV CVR": { label: "Landing-page view rate", unit: "pct", fmt: pf, better: "high", funnel: 1, site: true,
+          bench: { default: { good: .85, poor: .75 } },
+          cause: { default: "a site or landing-page problem where many clicks never load the page" },
+          checks: { default: ["PageSpeed / load-time test on the exact landing URL", "Open the URL on mobile: redirects, 404s, server errors", "Confirm the LPV / pixel event is firing", "Check recent theme / app / redirect changes"] } },
+        "ATC CVR": { label: "Add-to-cart rate", unit: "pct", fmt: pf, better: "high", funnel: 2, site: true,
+          bench: { default: { good: .06, poor: .03 } },
+          cause: { default: "the product page or offer (visitors land but don’t add to cart)" },
+          checks: { default: ["Review PDP: price, images, reviews, value prop", "Test offer, urgency & bundles", "Check stock & sizing/spec clarity"] } },
+        "IC CVR": { label: "Checkout-initiation rate", unit: "pct", fmt: pf, better: "high", funnel: 3, site: true,
+          bench: { default: { good: .45, poor: .30 } },
+          cause: { default: "cart friction (carts don’t reach checkout)" },
+          checks: { default: ["Show shipping cost early", "Add trust signals & a clear CTA", "Test guest checkout"] } },
+        "Purchase CVR": { label: "Purchase rate", unit: "pct", fmt: pf, better: "high", funnel: 4, site: true,
+          bench: { default: { good: .02, poor: .01 } },
+          cause: { default: "checkout friction (sessions reach checkout but don’t convert)" },
+          checks: { default: ["Audit checkout for payment failures", "Add payment options (incl. COD)", "Remove unexpected last-step costs"] } },
+        CPM: { label: "CPM", unit: "money", fmt: mf, better: "low", mom: .25,
+          cause: { default: "rising auction competition, a too-narrow audience, or weak creative raising delivery cost" },
+          checks: { default: ["Broaden / refresh audiences to ease auction pressure", "Refresh creative to lift relevance (lowers CPM)", "Check for seasonal competition spikes"] } },
+        CPC: { label: "CPC", unit: "money", fmt: mf, better: "low", mom: .25,
+          cause: { default: "CTR falling or CPM rising, so each click costs more" },
+          checks: { default: ["Lift CTR with stronger creative/copy", "Tighten targeting to more relevant users", "On Google, prune expensive low-converting keywords"] } },
+        "ROAS (Dash)": { label: "ROAS", unit: "x", fmt: xf, better: "high",
+          bench: { default: { good: 2.0, poor: 1.0 } },
+          cause: { default: "this channel is returning too little revenue for its spend" },
+          checks: { default: ["Pause the weakest ad sets / keywords", "Shift budget toward the higher-ROAS channel", "Recheck revenue tracking for this channel"] } },
+      };
+      const pick = (o, sec) => o[sec] || o.default;
+      const evalMetric = (key) => {
+        const k = KB[key];
         const perCh = chans.map(sec => {
-          const cur = chMo(b.key, sec, st.key, c), prev = chMo(b.key, sec, st.key, p);
-          if (cur == null && prev == null) return null;
-          const mom = pctc(cur, prev);
-          const belowBench = st.absBench && cur != null && cur < st.bench;
-          const dropped = mom != null && mom <= -DROP;
-          return { sec, cur, prev, mom, belowBench, dropped, bad: belowBench || dropped };
+          const cv = chMo(b.key, sec, key, c), pv = chMo(b.key, sec, key, p);
+          if (cv == null && pv == null) return null;
+          const mom = pctc(cv, pv);
+          const bm = k.bench ? pick(k.bench, sec) : null;
+          const worseMove = k.better === "high" ? (mom != null && mom <= -(k.mom || 0.15)) : (mom != null && mom >= (k.mom || 0.15));
+          const belowBench = bm ? (k.better === "high" ? cv != null && cv < bm.poor : cv != null && cv > bm.poor) : false;
+          return { sec, cv, pv, mom, bm, belowBench, bad: belowBench || worseMove };
         }).filter(Boolean);
-        return { st, perCh, idx: FUNNEL.indexOf(st) };
-      });
-      const broken = stages.find(s => s.perCh.length && s.perCh.some(p => p.bad));
-      if (!broken) return;
-      const st = broken.st, badCh = broken.perCh.filter(p => p.bad), availCh = broken.perCh.length;
-      const systemic = badCh.length >= 2;
-      const scope = systemic ? "systemic" : (availCh >= 2 ? "channel" : "single");
-      const anyCrit = badCh.some(p => (p.belowBench && p.cur < st.bench * 0.75) || (p.mom != null && p.mom <= -0.35));
-      const sev = anyCrit ? "critical" : "warn";
-      const chList = badCh.map(p => CHL[p.sec]).join(" and ");
-      const chPhrase = badCh.map(p => `${CHL[p.sec]} ${st.fmt(p.cur)}${p.mom != null ? " (" + pctTxt(p.mom) + " MoM)" : ""}`).join(", ");
-      let reasoning;
-      if (st.stage === "website") {
-        reasoning = systemic
-          ? `${st.label} fell on ${chList} together. Every channel sends clicks to the same store, so a shared drop in how many clicks actually load the page is site-side: ${st.cause}. It is not a single ad channel.`
-          : `${st.label} is the share of ad clicks that actually load the landing page, so a drop this size is almost always site-side (${st.cause}) rather than creative or targeting${availCh >= 2 ? " (which would usually hit just one channel)" : ". Only " + CHL[badCh[0].sec] + " tracks this stage here, so it can’t be cross-confirmed, but the mechanism still points at the site"}.`;
-      } else if (systemic) {
-        reasoning = `${st.label} dropped on ${chList} at the same time. A shared move across channels points to ${st.cause} on the store, not one channel’s setup.`;
-      } else if (scope === "single") {
-        reasoning = `${st.label} is only tracked on ${CHL[badCh[0].sec]} here, so it can’t be cross-confirmed, but the size of the move points to ${st.cause}.`;
-      } else {
-        reasoning = `${st.label} dropped on ${CHL[badCh[0].sec]} but held on the other channel(s), so this looks ${CHL[badCh[0].sec]}-specific: ${st.cause}.`;
+        return { key, k, perCh, bad: perCh.filter(x => x.bad) };
+      };
+      const emit = (res, cascade) => {
+        const { k, key } = res, badCh = res.bad, availCh = res.perCh.length;
+        const systemic = badCh.length >= 2, scope = systemic ? "systemic" : (availCh >= 2 ? "channel" : "single");
+        const moved = (x) => x.mom != null && (k.better === "high" ? x.mom <= -(k.mom || 0.15) : x.mom >= (k.mom || 0.15));
+        const levelOnly = !badCh.some(moved);                          // flagged purely on benchmark, no MoM move
+        const worse = k.better === "high" ? "down" : "up";
+        const moms = badCh.filter(moved).map(x => x.mom).sort((a, b) => Math.abs(b) - Math.abs(a));
+        const repMom = moms.length ? moms[0] : null;
+        // severity: a benchmark breach into the "poor" zone (or ROAS<1) is critical; a big
+        // MoM move while still healthy is only a warning, not a crisis.
+        let crit;
+        if (k.bench) crit = badCh.some(x => x.bm && (k.better === "high" ? x.cv < x.bm.poor * 0.8 : x.cv > x.bm.poor * 1.3));
+        else crit = badCh.some(x => x.mom != null && Math.abs(x.mom) >= 0.5);
+        if (key === "ROAS (Dash)" && badCh.some(x => x.cv != null && x.cv < 1)) crit = true;
+        const sev = crit ? "critical" : "warn";
+        const chList = badCh.map(x => CHL[x.sec]).join(" and ");
+        const phrase = badCh.map(x => `${CHL[x.sec]} ${k.fmt(x.cv)}${moved(x) ? " (" + pctTxt(x.mom) + " MoM)" : ""}`).join(", ");
+        const cause = pick(k.cause, badCh[0].sec);
+        let reasoning;
+        if (k.site) {
+          reasoning = systemic
+            ? `${k.label} is weak on ${chList}. Every channel sends traffic to the same store, so a shared problem here is site-side: ${cause}.`
+            : `${k.label} reflects what happens on the store after the click, so this is almost always site-side (${cause})${availCh >= 2 ? " rather than one channel’s ads" : "; only " + CHL[badCh[0].sec] + " tracks it here, but the mechanism still points at the site"}.`;
+        } else if (systemic) {
+          reasoning = `${k.label} is off on ${chList} together, which points to a portfolio or market-wide cause (${cause}) rather than one channel’s setup.`;
+        } else if (scope === "single") {
+          reasoning = `${k.label} on ${CHL[badCh[0].sec]} signals ${cause}.`;
+        } else {
+          reasoning = `${k.label} is off on ${CHL[badCh[0].sec]} but holds on the other channel(s), so it’s ${CHL[badCh[0].sec]}-specific: ${cause}.`;
+        }
+        if (cascade && cascade.length) reasoning += ` Downstream ${cascade.join(", ")} also fell, which is expected once ${k.label} breaks.`;
+        const benchNote = badCh.some(x => x.belowBench) ? ` ${k.better === "high" ? "Below" : "Above"} the ~${k.fmt(pick(k.bench, badCh[0].sec).poor)} industry-standard guideline.` : "";
+        const head = levelOnly ? `${k.label} off benchmark` : `${k.label} ${worse}`;
+        push({ ...ctx, metric: k.label, dir: worse, good: false, sev, pct: repMom, scope,
+          metricStr: repMom != null ? pctTxt(repMom) : "vs benchmark", value: k.fmt(badCh[0].cv),
+          msg: `${head} · ${phrase}.${benchNote}`,
+          reasoning, checks: pick(k.checks, badCh[0].sec), action: pick(k.checks, badCh[0].sec)[0] });
+      };
+      // 1) funnel cascade → emit earliest broken stage as root
+      const funnelKeys = Object.keys(KB).filter(key => KB[key].funnel != null).sort((a, b2) => KB[a].funnel - KB[b2].funnel);
+      const funnelRes = funnelKeys.map(evalMetric);
+      const root = funnelRes.find(r => r.bad.length);
+      const findings = [];
+      if (root) {
+        // cascade only applies to the on-site funnel (LPV→ATC→IC→Purchase feed each other);
+        // a CTR/ad-side drop does NOT mechanically break downstream on-site CVRs.
+        const cascade = KB[root.key].site
+          ? funnelRes.filter(r => KB[r.key].funnel > KB[root.key].funnel && KB[r.key].site && r.bad.length).map(r => KB[r.key].label)
+          : null;
+        findings.push({ res: root, cascade });
       }
-      const downstream = stages.filter(s => s.idx > broken.idx && s.perCh.some(p => p.bad)).map(s => s.st.label);
-      if (downstream.length) reasoning += ` Downstream ${downstream.join(" & ")} also fell, which is expected once ${st.label.toLowerCase()} breaks.`;
-      const benchNote = badCh.some(p => p.belowBench) ? ` Now below the ~${st.fmt(st.bench)} industry-standard guideline.` : "";
-      push({ ...ctx, metric: st.label, dir: "down", good: false, sev, pct: badCh[0].mom, scope,
-        metricStr: badCh[0].mom != null ? pctTxt(badCh[0].mom) : "▼", value: st.fmt(badCh[0].cur),
-        msg: `${st.label} down · ${chPhrase}.${benchNote}`,
-        reasoning, checks: st.checks, action: st.checks[0] });
+      // 2) independent cost / efficiency metrics
+      ["CPM", "CPC", "ROAS (Dash)"].forEach(key => { const r = evalMetric(key); if (r.bad.length) findings.push({ res: r, cascade: null }); });
+      findings.forEach(f => emit(f.res, f.cascade));
     })();
 
     // Spend pace · context only (not a crisis), when efficiency didn't already explain it
