@@ -245,12 +245,22 @@ function GoalMode({ b }) {
   const a = analyze(b);
   const [type, setType] = useStateF("gross");
   const [target, setTarget] = useStateF("");
+  const [ov, setOv] = useStateF({});   // optional assumption overrides (model multiple levers together)
   const meta = GOAL_META[type];
   let tv = parseFloat(String(target).replace(/[, ]/g, ""));
   if (meta.unit === "pct" && !isNaN(tv)) tv = tv / 100;
   const valid = !isNaN(tv) && tv > 0;
   const fc = { gross: a.proj.gross, net: a.proj.rev, spend: a.proj.spend, orders: a.proj.orders, contribution: a.proj.rev - a.proj.spend, roas: a.proj.roas, netRoas: b.netRoas, aov: a.proj.aov, cac: a.proj.cac, cvr: a.base.cvr }[type];
-  const plan = valid ? buildPlan(a, a.base, type, tv) : null;
+  // effective assumptions = baseline with any user overrides applied (keeps net/gross ratio)
+  const g2n = (a.base.roas && a.base.grossRoas) ? a.base.roas / a.base.grossRoas : 0.83;
+  const ovNum = k => { const x = parseFloat(String(ov[k] || "").replace(/[, ]/g, "")); return isNaN(x) ? null : x; };
+  const eff = Object.assign({}, a.base);
+  if (ovNum("roas") != null) { eff.grossRoas = ovNum("roas"); eff.roas = ovNum("roas") * g2n; }
+  if (ovNum("aov") != null) eff.aov = ovNum("aov");
+  if (ovNum("cac") != null) eff.cac = ovNum("cac");
+  if (ovNum("cvr") != null) eff.cvr = ovNum("cvr") / 100;
+  const hasOv = ["roas", "aov", "cac", "cvr"].some(k => ovNum(k) != null);
+  const plan = valid ? buildPlan(a, eff, type, tv) : null;
   const grLift = l => l != null ? (l >= 0 ? "+" : "") + Math.round(l * 100) + "%" : "-";
   const reqDRR = plan && plan.spend != null && a.daysRemaining > 0 ? Math.max(0, (plan.spend - a.mtd.spend) / a.daysRemaining) : null;
   const drrGap = reqDRR != null ? reqDRR - a.drr : null;
@@ -270,6 +280,20 @@ function GoalMode({ b }) {
           <input type="number" step="any" value={target} onChange={e => setTarget(e.target.value)} placeholder={meta.unit === "x" ? "e.g. 4" : meta.unit === "pct" ? "e.g. 2.4" : meta.unit === "count" ? "e.g. 2000" : "e.g. 5000000"} />
         </label>
         <div className="fc-baseline muted-sm">Forecast {meta.label.replace(/ target.*| \(.*/, "").toLowerCase()}: <b>{fmtGoal(meta.unit, fc)}</b></div>
+      </div>
+
+      <div className="fc-assume">
+        <span className="fc-assume-h">Adjust assumptions (optional) — model several levers together</span>
+        <div className="fc-assume-row">
+          {[["roas", "ROAS", "x", a.base.grossRoas], ["aov", "AOV", "money", a.base.aov], ["cac", "CAC", "money", a.base.cac], ["cvr", "CVR", "pct", a.base.cvr != null ? a.base.cvr * 100 : null]].map(([k, lbl, unit, baseV]) => (
+            <label key={k} className={"fc-assume-f" + (ovNum(k) != null ? " active" : "")}>
+              <span>{lbl} <span className="muted-sm">base {unit === "x" ? roas(baseV) : unit === "pct" ? (baseV != null ? baseV.toFixed(2) + "%" : "-") : (baseV != null ? inr(baseV) : "-")}</span></span>
+              <input type="number" step="any" placeholder={unit === "x" ? "× e.g. " + (baseV ? baseV.toFixed(1) : "4") : unit === "pct" ? "% e.g. " + (baseV ? baseV.toFixed(1) : "2") : "₹"} value={ov[k] || ""} onChange={e => setOv(o => Object.assign({}, o, { [k]: e.target.value }))} />
+            </label>
+          ))}
+          {hasOv && <button className="tl-btn" onClick={() => setOv({})}>Reset</button>}
+        </div>
+        {hasOv && <div className="muted-sm" style={{ marginTop: 6 }}>Plan below uses your adjusted assumptions instead of the forecast baseline.</div>}
       </div>
 
       {!valid && <div className="empty">Enter a target to {meta.kind === "forward" ? "see the projected outcome" : "reverse-engineer the plan"}.</div>}

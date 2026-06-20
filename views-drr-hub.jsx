@@ -17,6 +17,24 @@ function drrStatus(s) {
   return { cls: "good", label: "On track" };
 }
 
+function fmtMetric(metric, v, fmtM) {
+  if (v == null) return "-";
+  if (metric === "ROAS") return v.toFixed(2) + "×";
+  if (metric === "Orders") return num(v);
+  return fmtM(v);
+}
+const SIG_ICON = { bad: "⚠", warn: "⚡", good: "✦", info: "•" };
+function SignalRow({ s, fmtM, compact }) {
+  const pc = s.pct != null ? (s.dir === "up" ? "▲" : "▼") + " " + Math.abs(s.pct * 100).toFixed(0) + "%" : "";
+  const detail = s.msg || (s.cur != null && s.prev != null ? fmtMetric(s.metric, s.cur, fmtM) + " from " + fmtMetric(s.metric, s.prev, fmtM) + " " + s.base : "");
+  return (
+    <div className={"drr-sig " + s.sev + (compact ? " compact" : "")}>
+      <span className="drr-sig-ico">{SIG_ICON[s.sev] || "•"}</span>
+      <span className="drr-sig-body"><b>{s.metric}{pc ? " " + pc : ""}</b>{detail && !compact ? <span className="drr-sig-detail"> · {detail}</span> : null}</span>
+    </div>
+  );
+}
+
 function DeltaPill({ d, fmt }) {
   if (!d || d.delta == null || d.pct == null) return null;
   const up = d.delta >= 0, good = d.costMetric ? !up : up;
@@ -110,6 +128,16 @@ function DRRWorkspace({ brand, months, onBack, navigate }) {
         <DeltaCard label="AOV" field="aov" fmt={fmtM} cur={parsed} prevM={prevM} />
         <DeltaCard label="CAC" field="cac" fmt={fmtM} cur={parsed} prevM={prevM} />
         <DeltaCard label="Returns" field="returns" fmt={fmtM} cur={parsed} prevM={prevM} />
+      </div>
+
+      <div className="fc-sub">Insights &amp; analysis · day-on-day</div>
+      <div className="card drr-signals-card">
+        {(() => {
+          const signals = window.DRRService.drrSignals(parsed);
+          return signals.length
+            ? <div className="drr-sig-list">{signals.map((s, i) => <SignalRow key={i} s={s} fmtM={fmtM} />)}</div>
+            : <div className="drr-sig-none">✓ No unusual day-on-day movements — {brand.name} is steady vs yesterday.</div>;
+        })()}
       </div>
 
       <div className="fc-sub">Month to date</div>
@@ -221,6 +249,7 @@ function AllDRR({ navigate }) {
   const [q, setQ] = useStateD("");
   const [filter, setFilter] = useStateD("all");
   const [selected, setSelected] = useStateD(null);
+  const [dod, setDod] = useStateD(false);   // day-on-day signal view
 
   useEffectD(() => {
     let alive = true;
@@ -238,16 +267,26 @@ function AllDRR({ navigate }) {
   }
 
   let cards = reg.map(b => ({ brand: b, rec: data[b.id] || { status: "loading" } }));
+  cards.forEach(c => { c.alert = c.rec.status === "ok" ? window.DRRService.drrAlert(c.rec.parsed) : { sev: null, count: 0, signals: [] }; });
   if (q) cards = cards.filter(c => c.brand.name.toLowerCase().includes(q.toLowerCase()));
   if (filter !== "all") cards = cards.filter(c => {
     const s = c.rec.status === "ok" ? window.DRRService.summaryOf(c.rec.parsed) : null;
     const st = drrStatus(s).cls;
+    if (filter === "movers") return c.alert.sev === "bad" || c.alert.sev === "warn";
     if (filter === "attention") return st === "bad" || st === "warn";
     if (filter === "ontrack") return st === "good";
     if (filter === "unavailable") return c.rec.status === "error";
     return true;
   });
+  // in day-on-day mode, surface the biggest movers first
+  if (dod) cards = cards.slice().sort((a, b) => {
+    const r = window.DRRService.SEV_RANK, rank = x => x.alert && x.alert.sev ? r[x.alert.sev] : -1;
+    const dr = rank(b) - rank(a); if (dr) return dr;
+    const mv = x => { const d = x.rec.status === "ok" ? window.DRRService.compare("gross", "dod", x.rec.parsed, null) : null; return d && d.pct != null ? Math.abs(d.pct) : 0; };
+    return mv(b) - mv(a);
+  });
   const loaded = reg.filter(b => (data[b.id] || {}).status && data[b.id].status !== "loading").length;
+  const moverCount = reg.map(b => data[b.id]).filter(r => r && r.status === "ok" && ["bad", "warn"].includes(window.DRRService.drrAlert(r.parsed).sev)).length;
 
   return (
     <div className="screen">
@@ -264,29 +303,54 @@ function AllDRR({ navigate }) {
       <div className="drr-toolbar">
         <input className="drr-search" placeholder="Search brands…" value={q} onChange={e => setQ(e.target.value)} />
         <div className="filter-chips">
-          {[["all", "All"], ["ontrack", "On track"], ["attention", "Needs attention"], ["unavailable", "Unavailable"]].map(([k, l]) =>
+          {[["all", "All"], ["movers", "Big movers" + (moverCount ? " (" + moverCount + ")" : "")], ["ontrack", "On track"], ["attention", "Needs attention"], ["unavailable", "Unavailable"]].map(([k, l]) =>
             <button key={k} className={"chip " + (filter === k ? "on" : "")} onClick={() => setFilter(k)}>{l}</button>)}
+          <button className={"chip dod-toggle " + (dod ? "on" : "")} onClick={() => setDod(v => !v)} title="Show day-on-day changes & signals">⚡ Day-on-day</button>
         </div>
       </div>
 
       <div className="drr-grid">
-        {cards.map(({ brand, rec }) => {
+        {cards.map(({ brand, rec, alert }) => {
           if (rec.status === "loading") return <div className="card drr-card skeleton" key={brand.id}><div className="drr-card-h">{brand.name}</div><div className="muted-sm">Loading…</div></div>;
           if (rec.status === "error") return (
             <div className="card drr-card err" key={brand.id}><div className="drr-card-h">{brand.name}<span className="drr-status bad">Unavailable</span></div>
               <div className="muted-sm" style={{ marginTop: 6 }}>{rec.error}</div></div>);
-          const s = window.DRRService.summaryOf(rec.parsed), st = drrStatus(s);
+          const s = window.DRRService.summaryOf(rec.parsed), st = drrStatus(s), sym = s.currency;
+          const fmtM = v => drrMoney(v, sym);
+          const dd = f => window.DRRService.compare(f, "dod", rec.parsed, null);
+          const ddRev = dd("gross"), ddSpend = dd("spend"), ddRoas = dd("roas");
           return (
             <button className="card drr-card" key={brand.id} onClick={() => setSelected(brand)}>
-              <div className="drr-card-h">{brand.name}<span className={"drr-status " + st.cls}>{st.label}</span></div>
-              <div className="drr-card-month">{s.monthLabel} · {s.daysElapsed}/{s.monthDays} days</div>
-              <div className="drr-card-kpis">
-                <div><span className="dl">Revenue</span><span className="dv">{drrMoney(s.revenue, s.currency)} <DeltaPill d={s.revDelta} /></span></div>
-                <div><span className="dl">Spend</span><span className="dv">{drrMoney(s.spend, s.currency)}</span></div>
-                <div><span className="dl">ROAS</span><span className="dv"><RoasPill value={s.roas} /></span></div>
-                <div><span className="dl">Target</span><span className="dv">{s.achievement != null ? pct(s.achievement, 0) : "-"}</span></div>
+              <div className="drr-card-h"><span className="drr-card-name">{brand.name}</span>
+                <span className="drr-card-tags">
+                  {alert && alert.sev && (alert.sev === "bad" || alert.sev === "warn") && <span className={"drr-alert " + alert.sev} title={alert.top ? alert.top.metric : "signals"}>⚡ {alert.count}</span>}
+                  <span className={"drr-status " + st.cls}>{st.label}</span>
+                </span>
               </div>
-              {s.achievement != null && <div className="drr-progress sm"><div className="drr-progress-fill" style={{ width: pct(Math.min(1, s.achievement), 0) }} /></div>}
+              <div className="drr-card-month">{s.monthLabel} · {s.daysElapsed}/{s.monthDays} days</div>
+
+              {dod ? (
+                <div className="drr-card-dod">
+                  <div className="drr-dod-grid">
+                    <div><span className="dl">Revenue</span><span className="dv">{fmtM(ddRev && ddRev.cur)} <DeltaPill d={ddRev} /></span></div>
+                    <div><span className="dl">Spend</span><span className="dv">{fmtM(ddSpend && ddSpend.cur)} <DeltaPill d={ddSpend} /></span></div>
+                    <div><span className="dl">ROAS</span><span className="dv">{ddRoas && ddRoas.cur != null ? ddRoas.cur.toFixed(2) + "×" : "-"} <DeltaPill d={ddRoas} /></span></div>
+                  </div>
+                  {alert.signals && alert.signals.length
+                    ? <div className="drr-sig-list mini">{alert.signals.slice(0, 3).map((sg, i) => <SignalRow key={i} s={sg} fmtM={fmtM} compact />)}</div>
+                    : <div className="drr-sig-none mini">No notable day-on-day moves</div>}
+                </div>
+              ) : (<>
+                <div className="drr-card-kpis">
+                  <div><span className="dl">Revenue</span><span className="dv">{drrMoney(s.revenue, s.currency)} <DeltaPill d={s.revDelta} /></span></div>
+                  <div><span className="dl">Spend</span><span className="dv">{drrMoney(s.spend, s.currency)}</span></div>
+                  <div><span className="dl">ROAS</span><span className="dv"><RoasPill value={s.roas} /></span></div>
+                  <div><span className="dl">Target</span><span className="dv">{s.achievement != null ? pct(s.achievement, 0) : "-"}</span></div>
+                </div>
+                {alert && alert.top && (alert.sev === "bad" || alert.sev === "warn") && <div className="drr-card-topsig"><SignalRow s={alert.top} fmtM={fmtM} compact /></div>}
+                {s.achievement != null && <div className="drr-progress sm"><div className="drr-progress-fill" style={{ width: pct(Math.min(1, s.achievement), 0) }} /></div>}
+              </>)}
+
               <div className="drr-card-foot">Updated {rec.ts ? new Date(rec.ts).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
             </button>
           );

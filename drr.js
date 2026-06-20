@@ -366,5 +366,43 @@
     };
   }
 
-  window.DRRService = { registry, setOverrides, getOverrides, parseSheetId, fetchBrand, fetchWorkbook, summaryOf, delta, seriesOf, pool, parseDRR, numify, compare, availableModes, COMPARE_MODES, aggField, projectEOM };
+  // Day-on-day signal engine: flags notable/"crazy" daily changes (latest day vs the
+  // day before, plus anomalies vs the trailing 7-day average) per brand. Returns
+  // structured signals (the view formats the numbers) sorted most-severe first.
+  const SEV_RANK = { bad: 3, warn: 2, good: 1, info: 0 };
+  function drrSignals(parsed) {
+    const days = (parsed && parsed.days) || [];
+    if (days.length < 2) return [];
+    const last = days[days.length - 1], prev = days[days.length - 2];
+    const recent = days.slice(Math.max(0, days.length - 8), days.length - 1);
+    const avgOf = f => { const v = recent.map(d => d[f]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const S = [];
+    const add = (sev, metric, dir, pct, cur, prv, msg, base) => S.push({ sev, metric, dir, pct, cur, prev: prv, msg, base: base || "vs yesterday" });
+    const dod = f => { const c = last[f], p = prev[f]; if (c == null || p == null || p === 0) return null; return { c, p, pct: (c - p) / Math.abs(p) }; };
+    const thr = { gross: .25, spend: .30, roas: .20, orders: .25, cac: .25, aov: .20, returns: .50 };
+    let d;
+    d = dod("gross"); if (d && Math.abs(d.pct) >= thr.gross) add(d.pct > 0 ? "good" : (d.pct <= -.4 ? "bad" : "warn"), "Revenue", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("spend"); if (d && Math.abs(d.pct) >= thr.spend) add(d.pct > 0 ? (d.pct >= .5 ? "bad" : "warn") : "info", "Spend", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("roas"); if (d && Math.abs(d.pct) >= thr.roas) add(d.pct > 0 ? "good" : (last.roas != null && last.roas < 1 ? "bad" : "warn"), "ROAS", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("orders"); if (d && Math.abs(d.pct) >= thr.orders) add(d.pct > 0 ? "good" : "warn", "Orders", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("cac"); if (d && Math.abs(d.pct) >= thr.cac) add(d.pct > 0 ? "bad" : "good", "CAC", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("aov"); if (d && Math.abs(d.pct) >= thr.aov) add(d.pct > 0 ? "good" : "info", "AOV", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    d = dod("returns"); if (d && Math.abs(d.pct) >= thr.returns && d.c > 0) add(d.pct > 0 ? "warn" : "good", "Returns", d.pct > 0 ? "up" : "down", d.pct, d.c, d.p);
+    // level flags
+    if (last.roas != null && last.roas < 1) add("bad", "ROAS", "down", null, last.roas, prev.roas, "Unprofitable today — ROAS below 1×");
+    // efficiency combo: spend climbing faster than revenue
+    const sg = dod("spend"), gg = dod("gross");
+    if (sg && gg && sg.pct >= .2 && gg.pct <= .05) add("warn", "Efficiency", "up", null, null, null, "Spend rose " + Math.round(sg.pct * 100) + "% but revenue didn’t follow");
+    // anomaly vs trailing 7-day average
+    const ag = avgOf("gross");
+    if (ag && last.gross != null) { const r = last.gross / ag; if (r >= 1.6) add("good", "Revenue", "up", r - 1, last.gross, ag, "Well above the 7-day average", "vs 7-day avg"); else if (r <= .5) add("warn", "Revenue", "down", r - 1, last.gross, ag, "Well below the 7-day average", "vs 7-day avg"); }
+    // keep one signal per metric+base (highest severity wins), then sort
+    const seen = {}; const uniq = [];
+    S.sort((a, b) => SEV_RANK[b.sev] - SEV_RANK[a.sev]);
+    S.forEach(s => { const k = s.metric + "|" + s.base; if (!seen[k]) { seen[k] = 1; uniq.push(s); } });
+    return uniq;
+  }
+  function drrAlert(parsed) { const s = drrSignals(parsed); return { sev: s.length ? s[0].sev : null, count: s.length, top: s[0] || null, signals: s }; }
+
+  window.DRRService = { registry, setOverrides, getOverrides, parseSheetId, fetchBrand, fetchWorkbook, summaryOf, delta, seriesOf, pool, parseDRR, numify, compare, availableModes, COMPARE_MODES, aggField, projectEOM, drrSignals, drrAlert, SEV_RANK };
 })();
