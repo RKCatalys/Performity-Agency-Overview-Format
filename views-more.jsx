@@ -84,6 +84,7 @@ function buildAlertStream(M) {
   const ins = (M.insights || []).map(x => ({
     sev: x.sev, type: x.metric + " " + (x.dir === "up" ? "▲" : "▼"), brand: x.brand,
     msg: x.msg, action: x.action, metric: x.metricStr, since: x.prevMonth && x.month ? x.prevMonth + "→" + x.month : null,
+    reasoning: x.reasoning, checks: x.checks, scope: x.scope,
   }));
   // keep only structural legacy flags not already covered by the insights engine
   const flags = (M.alerts || []).filter(a => a.type === "Data anomaly" || a.type === "Awaiting data").map(a => ({
@@ -200,9 +201,16 @@ function Alerts({ navigate }) {
                     <div className={"ag-item " + window.sevCls(a.sev)} key={i}>
                       <span className="ag-dot" />
                       <div className="ag-body">
-                        <div className="ag-row1"><span className="alert-type">{a.type}</span>{a.since && <span className="alert-since">{a.since}</span>}<span className="ag-metric mono">{a.metric}</span></div>
+                        <div className="ag-row1"><span className="alert-type">{a.type}</span>
+                          {a.scope && <span className={"scope-tag " + a.scope}>{a.scope === "systemic" ? "Site-side" : a.scope === "channel" ? "Channel-specific" : "Single-channel"}</span>}
+                          {a.since && <span className="alert-since">{a.since}</span>}<span className="ag-metric mono">{a.metric}</span></div>
                         <div className="alert-msg">{a.msg}</div>
-                        {a.action && <div className="alert-action"><span className="aa-k">Recommended</span> {a.action}</div>}
+                        {a.reasoning && <div className="alert-why"><span className="aw-k">Why</span> {a.reasoning}</div>}
+                        {a.checks && a.checks.length > 0 && (
+                          <div className="alert-checks"><span className="aa-k">What to check</span>
+                            <ul>{a.checks.map((c, k) => <li key={k}>{c}</li>)}</ul></div>
+                        )}
+                        {!a.checks && a.action && <div className="alert-action"><span className="aa-k">Recommended</span> {a.action}</div>}
                       </div>
                     </div>
                   ))}

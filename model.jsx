@@ -217,6 +217,74 @@ window.buildModel = function () {
         msg: good ? `Meta conversion rate up ${pctTxt(cvrCh)} · funnel converting better.` : `Meta conversion rate fell ${pctTxt(cvrCh)} · funnel drop-off worsening.`,
         action: good ? `Push more traffic to the converting offers/LPs.` : `Audit ATC→checkout drop-off; test offer, urgency and the PDP/landing page.` });
     }
+    // ---- Funnel diagnostics · stage-level root cause + cross-channel attribution ----
+    // Walks the ad funnel (CTR → landing-page-view rate → add-to-cart → checkout →
+    // purchase) per channel, finds the EARLIEST broken stage (downstream stages are
+    // usually just consequences), checks it against an industry-standard guideline, and
+    // reasons about scope: a stage that drops on MULTIPLE channels is site/platform-side
+    // (shared store), a stage that drops on one channel is that channel's setup.
+    (() => {
+      const FUNNEL = [
+        { key: "CTR", label: "CTR", bench: 0.008, absBench: true, fmt: v => (v * 100).toFixed(2) + "%", stage: "creative",
+          cause: "ad creative or audience relevance (fewer people are clicking the ad)",
+          checks: ["Refresh ad creative, hooks & formats", "Refresh or tighten audience targeting", "Check frequency / creative fatigue"] },
+        { key: "LPV CVR", label: "Landing-page view rate", bench: 0.80, absBench: true, fmt: v => (v * 100).toFixed(1) + "%", stage: "website",
+          cause: "a site or landing-page problem where many clicks never load the page",
+          checks: ["Run a PageSpeed / load-time test on the exact ad landing URL", "Open the landing URL on mobile and look for slow load, redirects, 404s or server errors", "Confirm the Landing-Page-View / pixel event is still firing (tracking not broken)", "Check any recent theme / app / redirect change on the store"] },
+        { key: "ATC CVR", label: "Add-to-cart rate", bench: 0.03, fmt: v => (v * 100).toFixed(1) + "%", stage: "product page",
+          cause: "the product page or offer (visitors land but don’t add to cart)",
+          checks: ["Review the PDP: pricing, imagery, reviews, value proposition", "Test offer, urgency & bundles", "Check stock availability and sizing/spec clarity"] },
+        { key: "IC CVR", label: "Checkout-initiation rate", bench: 0.30, fmt: v => (v * 100).toFixed(1) + "%", stage: "cart",
+          cause: "cart friction (carts aren’t moving to checkout)",
+          checks: ["Show shipping cost early; remove cart surprises", "Add trust signals & a clear checkout CTA", "Test a faster / guest checkout"] },
+        { key: "Purchase CVR", label: "Purchase rate", bench: 0.02, fmt: v => (v * 100).toFixed(1) + "%", stage: "checkout",
+          cause: "checkout friction (sessions reach checkout but don’t convert)",
+          checks: ["Audit checkout for payment failures / errors", "Offer more payment options (incl. COD where relevant)", "Remove unexpected last-step costs"] },
+      ];
+      const CHL = { meta: "Meta", google: "Google", other: "Other" };
+      const chans = ["meta", "google", "other"];
+      const DROP = 0.15;
+      const stages = FUNNEL.map(st => {
+        const perCh = chans.map(sec => {
+          const cur = chMo(b.key, sec, st.key, c), prev = chMo(b.key, sec, st.key, p);
+          if (cur == null && prev == null) return null;
+          const mom = pctc(cur, prev);
+          const belowBench = st.absBench && cur != null && cur < st.bench;
+          const dropped = mom != null && mom <= -DROP;
+          return { sec, cur, prev, mom, belowBench, dropped, bad: belowBench || dropped };
+        }).filter(Boolean);
+        return { st, perCh, idx: FUNNEL.indexOf(st) };
+      });
+      const broken = stages.find(s => s.perCh.length && s.perCh.some(p => p.bad));
+      if (!broken) return;
+      const st = broken.st, badCh = broken.perCh.filter(p => p.bad), availCh = broken.perCh.length;
+      const systemic = badCh.length >= 2;
+      const scope = systemic ? "systemic" : (availCh >= 2 ? "channel" : "single");
+      const anyCrit = badCh.some(p => (p.belowBench && p.cur < st.bench * 0.75) || (p.mom != null && p.mom <= -0.35));
+      const sev = anyCrit ? "critical" : "warn";
+      const chList = badCh.map(p => CHL[p.sec]).join(" and ");
+      const chPhrase = badCh.map(p => `${CHL[p.sec]} ${st.fmt(p.cur)}${p.mom != null ? " (" + pctTxt(p.mom) + " MoM)" : ""}`).join(", ");
+      let reasoning;
+      if (st.stage === "website") {
+        reasoning = systemic
+          ? `${st.label} fell on ${chList} together. Every channel sends clicks to the same store, so a shared drop in how many clicks actually load the page is site-side: ${st.cause}. It is not a single ad channel.`
+          : `${st.label} is the share of ad clicks that actually load the landing page, so a drop this size is almost always site-side (${st.cause}) rather than creative or targeting${availCh >= 2 ? " (which would usually hit just one channel)" : ". Only " + CHL[badCh[0].sec] + " tracks this stage here, so it can’t be cross-confirmed, but the mechanism still points at the site"}.`;
+      } else if (systemic) {
+        reasoning = `${st.label} dropped on ${chList} at the same time. A shared move across channels points to ${st.cause} on the store, not one channel’s setup.`;
+      } else if (scope === "single") {
+        reasoning = `${st.label} is only tracked on ${CHL[badCh[0].sec]} here, so it can’t be cross-confirmed, but the size of the move points to ${st.cause}.`;
+      } else {
+        reasoning = `${st.label} dropped on ${CHL[badCh[0].sec]} but held on the other channel(s), so this looks ${CHL[badCh[0].sec]}-specific: ${st.cause}.`;
+      }
+      const downstream = stages.filter(s => s.idx > broken.idx && s.perCh.some(p => p.bad)).map(s => s.st.label);
+      if (downstream.length) reasoning += ` Downstream ${downstream.join(" & ")} also fell, which is expected once ${st.label.toLowerCase()} breaks.`;
+      const benchNote = badCh.some(p => p.belowBench) ? ` Now below the ~${st.fmt(st.bench)} industry-standard guideline.` : "";
+      push({ ...ctx, metric: st.label, dir: "down", good: false, sev, pct: badCh[0].mom, scope,
+        metricStr: badCh[0].mom != null ? pctTxt(badCh[0].mom) : "▼", value: st.fmt(badCh[0].cur),
+        msg: `${st.label} down · ${chPhrase}.${benchNote}`,
+        reasoning, checks: st.checks, action: st.checks[0] });
+    })();
+
     // Spend pace · context only (not a crisis), when efficiency didn't already explain it
     if (spendCh != null && Math.abs(spendCh) >= 0.30 && (roasCh == null || Math.abs(roasCh) < 0.12)) {
       const up = spendCh > 0;
